@@ -408,6 +408,7 @@
         },
         "translate": {
             "translate": "Translate",
+            "explain": "Explain",
             "add_collection_success": "Add to collection successfully",
             "recognizing": "Recognizing…",
             "speak": "Speak",

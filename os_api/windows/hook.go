@@ -159,7 +159,6 @@ func onKeyboard(nCode int, wParam, lParam uintptr) uintptr {
 	if nCode >= 0 {
 		kbd := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
 		if wParam == WM_KEYDOWN {
-			fmt.Printf("按下键: vkCode = %x\n", kbd.vkCode)
 			handleSequence(kbd.vkCode)
 		}
 	}
@@ -171,15 +170,12 @@ func handleSequence(key uint32) {
 	switch state {
 	case 0:
 		if key == VK_CTRL {
-			fmt.Println("✅ 检测到 Ctrl")
 			state = 1
 		}
 	case 1:
 		if key == VK_SHIFT {
-			fmt.Println("✅ 检测到 Shift")
 			state = 2
 		} else if key != VK_CTRL {
-			fmt.Println("❌ 顺序错误，重置")
 			state = 0
 		}
 	case 2:

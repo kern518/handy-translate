@@ -408,6 +408,7 @@
         },
         "translate": {
             "translate": "翻译",
+            "explain": "解释",
             "add_collection_success": "添加成功",
             "recognizing": "识别中…",
             "speak": "朗读",

@@ -63,6 +63,8 @@ key = ''
 
 # 开发调试
 
+`wails3 build`
+
 `wails3 dev`
 
 # 构建程序

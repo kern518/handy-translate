@@ -72,6 +72,14 @@ func main() {
 		}
 	})
 
+	app.Event.On("toolbarMode", func(event *application.CustomEvent) {
+		app.Logger.Info("toolbarMode", slog.Any("event", event))
+		if mode, ok := event.Data.(string); ok {
+			SetToolbarMode(mode)
+			app.Logger.Info("toolbarMode 已更新", slog.String("mode", mode))
+		}
+	})
+
 	// 系统托盘
 	systemTray := app.SystemTray.New()
 	myMenu := app.Menu.New()

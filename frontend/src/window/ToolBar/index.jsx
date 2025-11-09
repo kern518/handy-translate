@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Button, Card, CardBody, CardHeader, Divider, Tooltip, Spinner, Skeleton } from "@nextui-org/react";
+import { Button, Card, CardBody, CardHeader, Divider, Tooltip, Spinner, Skeleton, Tabs, Tab } from "@nextui-org/react";
 import { HeartIcon } from './HeartIcon';
 import { CameraIcon } from './CameraIcon';
 import { BsTranslate } from "react-icons/bs";
-import { MdContentCopy, MdVolumeUp, MdPushPin, MdOutlinePushPin } from "react-icons/md";
-import { ToolBarShow, Show, Hide, SetToolBarPinned, GetToolBarPinned } from "../../../bindings/handy-translate/app";
+import { MdContentCopy, MdVolumeUp, MdPushPin, MdOutlinePushPin, MdLightbulb } from "react-icons/md";
+import { ToolBarShow, Show, Hide, SetToolBarPinned, GetToolBarPinned, TransalteStream, ExplainStream } from "../../../bindings/handy-translate/app";
 import { lingva_tts } from "../../services/tts";
 import { useVoice } from "../../hooks/useVoice";
 import { Events, Window } from "@wailsio/runtime";
+import { useTranslation } from 'react-i18next';
 
 
 export default function ToolBar() {
@@ -23,8 +24,10 @@ export default function ToolBar() {
     const [isPlayingZh, setIsPlayingZh] = useState(false) // 播放中文
     const [isPinned, setIsPinned] = useState(false) // 是否固定窗口
     const [isAnimating, setIsAnimating] = useState(true) // 动画状态
+    const [mode, setMode] = useState('translate') // 模式：translate/explain
     const playOrStop = useVoice()
     const contentRef = useRef(); // 实际内容容器的引用
+    const { t } = useTranslation(); // 国际化
 
     // 初始化时从后端获取固定状态
     useEffect(() => {
@@ -323,10 +326,13 @@ export default function ToolBar() {
             setIsWord(isWordCheck)
 
             // 如果是单词，获取词典信息
-            if (isWordCheck) {
+            if (isWordCheck && mode === 'translate') {
                 const details = await fetchWordDetails(text.trim())
                 setWordDetails(details)
             }
+
+            // 注意：后端的 processHook 已经自动调用了翻译
+            // 如果需要前端控制，需要修改后端逻辑
         })
 
         // 监听流式翻译结果
@@ -573,6 +579,54 @@ export default function ToolBar() {
                         </Button>
                     </Tooltip>
 
+                    {/* 翻译/解释模式切换 */}
+                    <Tabs
+                        selectedKey={mode}
+                        onSelectionChange={async (key) => {
+                            setMode(key)
+                            // 通知后端更新模式
+                            Events.Emit({ name: "toolbarMode", data: key })
+
+                            // 切换模式后，如果有queryText，重新调用对应API
+                            if (queryText && queryText.trim() !== '') {
+                                setIsLoading(true)
+                                setResult('')
+                                streamBufferRef.current = ''
+
+                                if (key === 'translate') {
+                                    console.log('切换到翻译模式，调用 TransalteStream')
+                                    // 默认使用 auto 和 zh
+                                    await TransalteStream(queryText, 'auto', 'zh')
+                                } else if (key === 'explain') {
+                                    console.log('切换到解释模式，调用 ExplainStream')
+                                    setWordDetails("")
+                                    await ExplainStream(queryText)
+                                }
+                            }
+                        }}
+                        size="sm"
+                        aria-label="Mode Switch"
+                    >
+                        <Tab
+                            key="translate"
+                            title={
+                                <div className="flex items-center gap-1">
+                                    <BsTranslate className="text-xs" />
+                                    <span className="text-xs">{t('translate.translate')}</span>
+                                </div>
+                            }
+                        />
+                        <Tab
+                            key="explain"
+                            title={
+                                <div className="flex items-center gap-1">
+                                    <MdLightbulb className="text-xs" />
+                                    <span className="text-xs">{t('translate.explain')}</span>
+                                </div>
+                            }
+                        />
+                    </Tabs>
+
                     <div className="flex gap-2">
                         <Tooltip content={isPinned ? "取消固定" : "固定窗口"} placement="bottom">
                             <Button
@@ -626,14 +680,14 @@ export default function ToolBar() {
                 ) : (
                     // 翻译内容
                     <div ref={contentRef} className={`${isWord ? '' : 'p-4'} max-h-[500px] overflow-y-auto`}>
-                        {isWord ? (
+                        {isWord && mode !== 'explain' ? (
                             // 词典格式显示（即使没有详细释义也显示）
                             <div className="p-4">
                                 {renderWordDetailsContent()}
                             </div>
                         ) : (
                             // 普通翻译结果
-                            <p className="text-black leading-relaxed whitespace-pre-wrap">
+                            <p className="text-black leading-relaxed whitespace-pre-wrap p-4">
                                 {result}
                             </p>
                         )}

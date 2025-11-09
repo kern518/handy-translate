@@ -19,6 +19,7 @@ type Translate interface {
 type StreamTranslate interface {
 	Translate
 	PostQueryStream(query, sourceLang, targetLang string, callback func(chunk string)) error
+	PostExplainStream(query string, callback func(chunk string)) error
 }
 
 func GetTransalteWay(way string) Translate {

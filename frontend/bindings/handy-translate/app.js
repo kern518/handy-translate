@@ -24,6 +24,15 @@ export function CaptureSelectedScreen(startX, startY, width, height) {
 }
 
 /**
+ * ExplainStream 流式解释逻辑（仅支持 DeepSeek）
+ * @param {string} queryText
+ * @returns {$CancellablePromise<void>}
+ */
+export function ExplainStream(queryText) {
+    return $Call.ByID(376363948, queryText);
+}
+
+/**
  * GetToolBarPinned 获取工具栏固定状态
  * @returns {$CancellablePromise<boolean>}
  */
