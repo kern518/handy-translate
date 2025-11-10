@@ -409,6 +409,8 @@
         "translate": {
             "translate": "Translate",
             "explain": "Explain",
+            "select_template": "Select Explain Template",
+            "template_placeholder": "Select Explain Template",
             "add_collection_success": "Add to collection successfully",
             "recognizing": "Recognizing…",
             "speak": "Speak",

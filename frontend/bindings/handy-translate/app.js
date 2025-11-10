@@ -24,12 +24,21 @@ export function CaptureSelectedScreen(startX, startY, width, height) {
 }
 
 /**
- * ExplainStream 流式解释逻辑（仅支持 DeepSeek）
+ * ExplainStream 流式解释逻辑（仅支持 DeepSeek，支持模板选择）
  * @param {string} queryText
+ * @param {string} templateID
  * @returns {$CancellablePromise<void>}
  */
-export function ExplainStream(queryText) {
-    return $Call.ByID(376363948, queryText);
+export function ExplainStream(queryText, templateID) {
+    return $Call.ByID(376363948, queryText, templateID);
+}
+
+/**
+ * GetExplainTemplates 获取所有解释模板
+ * @returns {$CancellablePromise<string>}
+ */
+export function GetExplainTemplates() {
+    return $Call.ByID(3040340113);
 }
 
 /**
@@ -73,6 +82,15 @@ export function Hide(windowName) {
  */
 export function MyFetch(URL, content) {
     return $Call.ByID(2071126117, URL, content);
+}
+
+/**
+ * SetDefaultExplainTemplate 设置默认解释模板
+ * @param {string} templateID
+ * @returns {$CancellablePromise<void>}
+ */
+export function SetDefaultExplainTemplate(templateID) {
+    return $Call.ByID(2386154593, templateID);
 }
 
 /**

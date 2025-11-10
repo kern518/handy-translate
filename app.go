@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"handy-translate/config"
 	"handy-translate/os_api/windows"
-	windowsApi "handy-translate/os_api/windows"
 	"handy-translate/translate_service"
 	"handy-translate/utils"
 	"handy-translate/window/screenshot"
@@ -21,7 +20,16 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+var toolbarIsShowing bool = false // 标记工具栏是否已经显示
+
 // 和js绑定的go方法集合
+type AppInterface interface {
+	Show(windowName string)
+	Hide(windowName string)
+	ToolBarShow(height float64)
+	SetToolBarPinned(pinned bool)
+	GetToolBarPinned() bool
+}
 
 // App is a service
 type App struct{}
@@ -88,10 +96,11 @@ func (a *App) TransalteStream(queryText, fromLang, toLang string) {
 	}
 }
 
-// ExplainStream 流式解释逻辑（仅支持 DeepSeek）
-func (a *App) ExplainStream(queryText string) {
+// ExplainStream 流式解释逻辑（仅支持 DeepSeek，支持模板选择）
+func (a *App) ExplainStream(queryText, templateID string) {
 	app.Logger.Info("ExplainStream",
-		slog.Any("queryText", queryText))
+		slog.Any("queryText", queryText),
+		slog.Any("templateID", templateID))
 
 	translateWay := translate_service.GetTransalteWay(config.Data.TranslateWay)
 
@@ -99,7 +108,7 @@ func (a *App) ExplainStream(queryText string) {
 	if streamTranslate, ok := translateWay.(translate_service.StreamTranslate); ok {
 		// 支持流式输出
 		slog.Info("使用流式解释")
-		err := streamTranslate.PostExplainStream(queryText, func(chunk string) {
+		err := streamTranslate.PostExplainStream(queryText, templateID, func(chunk string) {
 			// 每次收到数据块时发送事件到前端
 			slog.Info("发送流式解释数据块", slog.String("chunk", chunk), slog.Int("length", len(chunk)))
 			app.Event.Emit("result_stream", chunk)
@@ -115,7 +124,7 @@ func (a *App) ExplainStream(queryText string) {
 		}
 	} else {
 		// 不支持流式输出，使用普通解释
-		res := processExplain(queryText)
+		res := processExplain(queryText, templateID)
 		app.Event.Emit("result", res)
 	}
 }
@@ -141,6 +150,44 @@ func (a *App) SetTransalteWay(translateWay string) {
 // GetTransalteWay 获取当前翻译的服务
 func (a *App) GetTransalteWay() string {
 	return config.Data.TranslateWay
+}
+
+// GetExplainTemplates 获取所有解释模板
+func (a *App) GetExplainTemplates() string {
+	templates := make(map[string]map[string]interface{})
+
+	// 如果配置为空，返回空结果
+	if len(config.Data.ExplainTemplates.Templates) == 0 {
+		return "{}"
+	}
+
+	// 构建返回数据
+	for id, template := range config.Data.ExplainTemplates.Templates {
+		templates[id] = map[string]interface{}{
+			"id":          id,
+			"name":        template.Name,
+			"description": template.Description,
+		}
+	}
+
+	result := map[string]interface{}{
+		"default_template": config.Data.ExplainTemplates.DefaultTemplate,
+		"templates":        templates,
+	}
+
+	b, err := json.Marshal(result)
+	if err != nil {
+		logrus.WithError(err).Error("Marshal ExplainTemplates")
+		return "{}"
+	}
+	return string(b)
+}
+
+// SetDefaultExplainTemplate 设置默认解释模板
+func (a *App) SetDefaultExplainTemplate(templateID string) {
+	config.Data.ExplainTemplates.DefaultTemplate = templateID
+	config.Save()
+	slog.Info("SetDefaultExplainTemplate", slog.String("templateID", templateID))
 }
 
 // Show 通过名字控制窗口事件
@@ -186,21 +233,18 @@ func (a *App) Hide(windowName string) {
 	win.Hide()
 }
 
-var queryResultHeight int = 54
-var toolbarIsShowing bool = false // 标记工具栏是否已经显示
-
 // ToolBarShow 显示工具弹窗，控制大小，布局, 前端调用，传递文本高度
 func (a *App) ToolBarShow(height float64) {
 	// 40 + 55 窗口空白区域+翻译的图标区域
 	height = height + 35 + 54
 	app.Logger.Info("ToolBarShow", slog.Float64("height", height), slog.Bool("isShowing", toolbarIsShowing))
 
-	h := min(int(height), 600)
+	h := min(int(height), toolbar.QueryResultHeight+500)
 
 	if h == 0 {
-		h = 54
+		h = toolbar.QueryResultHeight
 	}
-	queryResultHeight = h
+	toolbar.QueryResultHeight = h
 	processToolbarShow()
 }
 
@@ -217,7 +261,7 @@ func (a *App) GetToolBarPinned() bool {
 }
 
 func processToolbarShow() {
-	height := queryResultHeight
+	height := toolbar.QueryResultHeight
 	w := toolbar.Window
 	w.SetSize(w.Width(), height)
 
@@ -374,8 +418,8 @@ func processTranslate(queryText string) string {
 	return translateRes
 }
 
-// 解释处理
-func processExplain(queryText string) string {
+// 解释处理（支持模板选择）
+func processExplain(queryText, templateID string) string {
 	translateWay := translate_service.GetTransalteWay(config.Data.TranslateWay)
 
 	// 检查是否支持流式输出
@@ -383,7 +427,7 @@ func processExplain(queryText string) string {
 		// 支持流式输出
 		slog.Info("使用流式解释")
 		var streamResult string
-		err := streamTranslate.PostExplainStream(queryText, func(chunk string) {
+		err := streamTranslate.PostExplainStream(queryText, templateID, func(chunk string) {
 			streamResult += chunk
 			// 每次收到数据块时发送事件到前端
 			slog.Info("发送流式解释数据块", slog.String("chunk", chunk), slog.Int("length", len(chunk)))
@@ -427,7 +471,7 @@ func processHook() {
 		go windows.WindowsHook()
 	}
 
-	for msg := range windowsApi.HookChan {
+	for msg := range windows.HookChan {
 		switch msg {
 		case "mouse":
 			result, ok := app.Clipboard.Text()
@@ -460,12 +504,9 @@ func processHook() {
 				// 根据工具栏模式选择翻译或解释
 				mode := GetToolbarMode()
 				if mode == "explain" {
-					// 解释模式
-					if _, ok := translateWay.(translate_service.StreamTranslate); ok {
-						// 流式解释：开始流式解释（会发送 result_stream 事件）
-						explainRes := processExplain(queryText)
-						slog.Info("流式解释完成，结果长度", slog.Int("len", len(explainRes)))
-					}
+					// 解释模式：由前端根据选中的模板主动调用 ExplainStream
+					// 这里不直接调用，让前端收到 query 事件后主动调用
+					slog.Info("解释模式，等待前端调用 ExplainStream")
 				} else {
 					// 翻译模式（默认）
 					if _, ok := translateWay.(translate_service.StreamTranslate); ok {

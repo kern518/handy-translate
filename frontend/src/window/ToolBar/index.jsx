@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Button, Card, CardBody, CardHeader, Divider, Tooltip, Spinner, Skeleton, Tabs, Tab } from "@nextui-org/react";
+import { Button, Card, CardBody, CardHeader, Divider, Tooltip, Spinner, Skeleton, Tabs, Tab, Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@nextui-org/react";
 import { HeartIcon } from './HeartIcon';
 import { CameraIcon } from './CameraIcon';
 import { BsTranslate } from "react-icons/bs";
 import { MdContentCopy, MdVolumeUp, MdPushPin, MdOutlinePushPin, MdLightbulb } from "react-icons/md";
-import { ToolBarShow, Show, Hide, SetToolBarPinned, GetToolBarPinned, TransalteStream, ExplainStream } from "../../../bindings/handy-translate/app";
+import { ToolBarShow, Show, Hide, SetToolBarPinned, GetToolBarPinned, TransalteStream, ExplainStream, GetExplainTemplates, SetDefaultExplainTemplate } from "../../../bindings/handy-translate/app";
 import { lingva_tts } from "../../services/tts";
 import { useVoice } from "../../hooks/useVoice";
 import { Events, Window } from "@wailsio/runtime";
@@ -25,11 +25,16 @@ export default function ToolBar() {
     const [isPinned, setIsPinned] = useState(false) // 是否固定窗口
     const [isAnimating, setIsAnimating] = useState(true) // 动画状态
     const [mode, setMode] = useState('translate') // 模式：translate/explain
+    const modeRef = useRef('translate') // 用于在事件处理函数中访问最新的 mode 值
+    const [explainTemplates, setExplainTemplates] = useState([]) // 解释模板列表
+    const [selectedTemplate, setSelectedTemplate] = useState('') // 选中的模板ID
+    const selectedTemplateRef = useRef('') // 用于在事件处理函数中访问最新的 selectedTemplate 值
+    const [defaultTemplate, setDefaultTemplate] = useState('') // 默认模板ID
     const playOrStop = useVoice()
     const contentRef = useRef(); // 实际内容容器的引用
     const { t } = useTranslation(); // 国际化
 
-    // 初始化时从后端获取固定状态
+    // 初始化时从后端获取固定状态和模板列表
     useEffect(() => {
         GetToolBarPinned().then(pinned => {
             console.log('从后端获取工具栏固定状态:', pinned)
@@ -40,6 +45,33 @@ export default function ToolBar() {
             }
         }).catch(err => {
             console.error('获取固定状态失败:', err)
+        })
+
+        // 获取解释模板列表
+        GetExplainTemplates().then(result => {
+            try {
+                const data = JSON.parse(result)
+                console.log('获取到解释模板:', data)
+                
+                if (data.templates && Object.keys(data.templates).length > 0) {
+                    // 转换为数组格式
+                    const templatesArray = Object.keys(data.templates).map(id => ({
+                        id,
+                        ...data.templates[id]
+                    }))
+                    setExplainTemplates(templatesArray)
+                    
+                    // 设置默认模板
+                    const defaultId = data.default_template || templatesArray[0]?.id || ''
+                    setDefaultTemplate(defaultId)
+                    setSelectedTemplate(defaultId)
+                    selectedTemplateRef.current = defaultId // 同步更新 ref
+                }
+            } catch (err) {
+                console.error('解析模板数据失败:', err)
+            }
+        }).catch(err => {
+            console.error('获取解释模板失败:', err)
         })
     }, [])
 
@@ -331,8 +363,14 @@ export default function ToolBar() {
                 setWordDetails(details)
             }
 
-            // 注意：后端的 processHook 已经自动调用了翻译
-            // 如果需要前端控制，需要修改后端逻辑
+            // 如果是解释模式，前端主动调用 ExplainStream（使用当前选中的模板）
+            // 使用 ref 获取最新的值，避免闭包问题
+            if (modeRef.current === 'explain') {
+                const templateId = selectedTemplateRef.current || defaultTemplate || ''
+                console.log('解释模式，主动调用 ExplainStream，templateID:', templateId, '当前 mode:', modeRef.current)
+                await ExplainStream(text, templateId)
+            }
+            // 翻译模式由后端自动处理
         })
 
         // 监听流式翻译结果
@@ -584,6 +622,7 @@ export default function ToolBar() {
                         selectedKey={mode}
                         onSelectionChange={async (key) => {
                             setMode(key)
+                            modeRef.current = key // 同步更新 ref
                             // 通知后端更新模式
                             Events.Emit({ name: "toolbarMode", data: key })
 
@@ -599,8 +638,12 @@ export default function ToolBar() {
                                     await TransalteStream(queryText, 'auto', 'zh')
                                 } else if (key === 'explain') {
                                     console.log('切换到解释模式，调用 ExplainStream')
+                                    console.log('selectedTemplate:', selectedTemplate, 'defaultTemplate:', defaultTemplate)
                                     setWordDetails("")
-                                    await ExplainStream(queryText)
+                                    // 使用选中的模板ID，如果没有则使用默认模板
+                                    const templateId = selectedTemplate || defaultTemplate || ''
+                                    console.log('使用的 templateID:', templateId)
+                                    await ExplainStream(queryText, templateId)
                                 }
                             }
                         }}
@@ -626,6 +669,51 @@ export default function ToolBar() {
                             }
                         />
                     </Tabs>
+
+                    {/* 解释模式下的模板选择器 */}
+                    {mode === 'explain' && explainTemplates.length > 0 && (
+                        <Dropdown placement="top">
+                            <DropdownTrigger>
+                                <Button
+                                    size="sm"
+                                    variant="flat"
+                                    className="min-w-[100px]"
+                                >
+                                    {explainTemplates.find(t => t.id === selectedTemplate)?.name || explainTemplates.find(t => t.id === defaultTemplate)?.name || t('translate.template_placeholder')}
+                                </Button>
+                            </DropdownTrigger>
+                            <DropdownMenu
+                                aria-label={t('translate.select_template')}
+                                selectedKeys={selectedTemplate ? [selectedTemplate] : []}
+                                selectionMode="single"
+                                onAction={async (key) => {
+                                    const newTemplateId = String(key)
+                                    console.log('模板切换，新模板ID:', newTemplateId)
+                                    setSelectedTemplate(newTemplateId)
+                                    selectedTemplateRef.current = newTemplateId // 同步更新 ref
+                                    
+                                    // 切换模板后，如果有查询文本，重新解释
+                                    if (queryText && queryText.trim() !== '') {
+                                        setIsLoading(true)
+                                        setResult('')
+                                        streamBufferRef.current = ''
+                                        console.log('调用 ExplainStream，queryText:', queryText, 'templateID:', newTemplateId)
+                                        await ExplainStream(queryText, newTemplateId)
+                                    }
+                                }}
+                                className="max-h-[40vh] overflow-y-auto"
+                            >
+                                {explainTemplates.map((template) => (
+                                    <DropdownItem 
+                                        key={template.id}
+                                        description={template.description}
+                                    >
+                                        {template.name}
+                                    </DropdownItem>
+                                ))}
+                            </DropdownMenu>
+                        </Dropdown>
+                    )}
 
                     <div className="flex gap-2">
                         <Tooltip content={isPinned ? "取消固定" : "固定窗口"} placement="bottom">

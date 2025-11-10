@@ -13,7 +13,9 @@ var WindowName = "ToolBar"
 
 var Window *application.WebviewWindow
 
-var IsPinned = false // 窗口固定状态
+var IsPinned = false            // 窗口固定状态
+var QueryResultHeight int = 100 // 高度
+var QueryResultWidth int = 450  // 宽度
 
 var toolWindowStyleApplied sync.Once // 确保只应用一次样式
 
@@ -21,8 +23,8 @@ var toolWindowStyleApplied sync.Once // 确保只应用一次样式
 func NewWindow(app *application.App) {
 	Window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:             WindowName,
-		Width:             400,
-		Height:            54,
+		Width:             QueryResultWidth,
+		Height:            QueryResultHeight,
 		AlwaysOnTop:       false,
 		Hidden:            true,
 		DisableResize:     false,
@@ -33,7 +35,7 @@ func NewWindow(app *application.App) {
 		BackgroundType:    application.BackgroundTypeTranslucent, // 半透明背景，支持圆角
 	})
 
-	Window.SetMaxSize(500, 600)
+	Window.SetMaxSize(QueryResultWidth+100, QueryResultHeight+500)
 
 	// 处理窗口显示事件 - 在首次显示时应用 Windows 样式
 	Window.OnWindowEvent(events.Common.WindowShow, func(e *application.WindowEvent) {

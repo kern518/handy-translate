@@ -158,18 +158,14 @@ func (c *Deepseek) PostQueryStream(query, fromLang, toLang string, callback func
 	return err
 }
 
-// PostExplainStream 流式术语解释
-func (c *Deepseek) PostExplainStream(query string, callback func(chunk string)) error {
-	var template = `你是一名资深程序员，对计算机系统、网络、编程语言和工程实践有深入理解。
-			请用简洁、专业、易于程序员快速理解的方式解释以下技术术语。
-			要求：
-			1. 用程序员的视角说明它是什么及核心机制或原理
-			2. 简述它在实际开发或系统中的常见用途
-			3. 控制在 3~5 句话内，直击要点，不赘述
-			术语：{{.text}}`
+// PostExplainStream 流式术语解释（支持模板选择）
+func (c *Deepseek) PostExplainStream(query, templateID string, callback func(chunk string)) error {
+	// 获取模板内容
+	templateStr := c.getTemplate(templateID)
+
 	// 定义术语解释模板
 	promptTemplate := prompts.NewPromptTemplate(
-		template,
+		templateStr,
 		[]string{"text"},
 	)
 
@@ -199,4 +195,45 @@ func (c *Deepseek) PostExplainStream(query string, callback func(chunk string)) 
 	}))
 
 	return err
+}
+
+// getTemplate 获取提示词模板，支持从配置中读取
+func (c *Deepseek) getTemplate(templateID string) string {
+	// 如果配置为空，使用硬编码的默认模板
+	if len(config.Data.ExplainTemplates.Templates) == 0 {
+		return ""
+	}
+
+	// 如果 templateID 为空，使用默认模板
+	if templateID == "" {
+		templateID = config.Data.ExplainTemplates.DefaultTemplate
+	}
+
+	// 如果默认模板也为空，使用第一个可用模板
+	if templateID == "" {
+		for id := range config.Data.ExplainTemplates.Templates {
+			templateID = id
+			break
+		}
+	}
+
+	// 从配置中获取模板
+	if template, exists := config.Data.ExplainTemplates.Templates[templateID]; exists {
+		return template.Template
+	}
+
+	// 如果指定的模板不存在，尝试使用默认模板
+	if config.Data.ExplainTemplates.DefaultTemplate != "" {
+		if template, exists := config.Data.ExplainTemplates.Templates[config.Data.ExplainTemplates.DefaultTemplate]; exists {
+			return template.Template
+		}
+	}
+
+	// 如果都找不到，使用第一个可用模板
+	for _, template := range config.Data.ExplainTemplates.Templates {
+		return template.Template
+	}
+
+	// 最后的回退：使用硬编码的默认模板
+	return ""
 }

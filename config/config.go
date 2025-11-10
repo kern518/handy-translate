@@ -15,16 +15,28 @@ var Data config
 
 type (
 	config struct {
-		Appname      string               `toml:"appname"`
-		Keyboards    map[string][]string  `toml:"keyboards"`
-		TranslateWay string               `toml:"translate_way"`
-		Translate    map[string]Translate `toml:"translate"`
+		Appname         string                    `toml:"appname"`
+		Keyboards       map[string][]string       `toml:"keyboards"`
+		TranslateWay    string                    `toml:"translate_way"`
+		Translate       map[string]Translate      `toml:"translate"`
+		ExplainTemplates ExplainTemplatesConfig   `toml:"explain_templates"`
 	}
 
 	Translate struct {
 		Name  string `toml:"name" json:"name,omitempty"`
 		AppID string `toml:"appID" json:"appID,omitempty"`
 		Key   string `toml:"key" json:"key,omitempty"`
+	}
+
+	ExplainTemplatesConfig struct {
+		DefaultTemplate string                    `toml:"default_template"`
+		Templates       map[string]ExplainTemplate `toml:"templates"`
+	}
+
+	ExplainTemplate struct {
+		Name        string `toml:"name" json:"name"`
+		Description string `toml:"description" json:"description"`
+		Template    string `toml:"template" json:"template"`
 	}
 )
 
