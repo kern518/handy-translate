@@ -2,11 +2,12 @@ package youdao
 
 import (
 	"encoding/json"
-	"handy-translate/config"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+
+	"handy-translate/config"
 )
 
 const YouDaoOnlineWay = "youdao_online"
@@ -33,7 +34,7 @@ func (y *YouDaoOnline) PostQuery(query string) []string {
 		return nil
 	}
 
-	var tr YoudaoOnlineTransalte
+	var tr YoudaoOnlineTranslate
 
 	err = json.Unmarshal(body, &tr)
 	if err != nil {
@@ -46,7 +47,7 @@ func (y *YouDaoOnline) PostQuery(query string) []string {
 	return nil
 }
 
-type YoudaoOnlineTransalte struct {
+type YoudaoOnlineTranslate struct {
 	Result Result `json:"result"`
 	Data   Data   `json:"data"`
 }

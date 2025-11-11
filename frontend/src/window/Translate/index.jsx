@@ -12,7 +12,7 @@ import About from './components/About';
 import { useConfig, useSyncAtom, useVoice, useToastStyle } from '../../hooks';
 import { translateServiceListAtom } from './components/Way';
 import { atom, useAtom, useAtomValue } from 'jotai';
-import { GetTransalteWay } from '../../../bindings/handy-translate/app';
+import { GetTranslateWay } from '../../../bindings/handy-translate/app';
 import { Window } from "@wailsio/runtime";
 
 let blurTimeout = null;
@@ -40,7 +40,7 @@ export default function Translate({ variable, onUpdateVariable }) {
     const [translateServiceList, setTranslateServiceList] = useAtom(translateServiceListAtom);
 
     useEffect(() => {
-        GetTransalteWay().then(result => {
+        GetTranslateWay().then(result => {
             setTranslateServiceList([result]);
         });
     }, []);

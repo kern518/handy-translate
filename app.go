@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"image/png"
+	"log/slog"
+	"runtime"
+	"strings"
+
 	"handy-translate/config"
 	"handy-translate/os_api/windows"
 	"handy-translate/translate_service"
@@ -11,10 +16,6 @@ import (
 	"handy-translate/window/screenshot"
 	"handy-translate/window/toolbar"
 	"handy-translate/window/translate"
-	"image/png"
-	"log/slog"
-	"runtime"
-	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -51,9 +52,9 @@ func (a *App) MyFetch(URL string, content map[string]interface{}) interface{} {
 	return utils.MyFetch(URL, content)
 }
 
-// Transalte 翻译逻辑
-func (a *App) Transalte(queryText, fromLang, toLang string) string {
-	app.Logger.Info("Transalte",
+// Translate 翻译逻辑
+func (a *App) Translate(queryText, fromLang, toLang string) string {
+	app.Logger.Info("Translate",
 		slog.Any("queryText", queryText),
 		slog.Any("toLang", toLang),
 		slog.Any("fromLang", fromLang))
@@ -62,14 +63,65 @@ func (a *App) Transalte(queryText, fromLang, toLang string) string {
 	return res
 }
 
-// TransalteStream 流式翻译逻辑（仅支持 DeepSeek）
-func (a *App) TransalteStream(queryText, fromLang, toLang string) {
-	app.Logger.Info("TransalteStream",
+// Translate 翻译逻辑
+func (a *App) TranslateMeanings(queryText, fromLang, toLang string) string {
+	app.Logger.Info("Translate",
 		slog.Any("queryText", queryText),
 		slog.Any("toLang", toLang),
 		slog.Any("fromLang", fromLang))
 
-	translateWay := translate_service.GetTransalteWay(config.Data.TranslateWay)
+	translateWay := translate_service.GetTranslateWay(config.Data.TranslateWay)
+
+	// 检查是否支持流式输出
+	if streamTranslate, ok := translateWay.(translate_service.StreamTranslate); ok {
+		// 支持流式输出
+		slog.Info("使用流式翻译")
+		var streamResult string
+		err := streamTranslate.PostQueryStream(queryText, fromLang, toLang, func(chunk string) {
+			streamResult += chunk
+			// 每次收到数据块时发送事件到前端
+			slog.Info("发送流式数据块", slog.String("chunk", chunk), slog.Int("length", len(chunk)))
+			app.Event.Emit("result_meanings_stream", chunk)
+		})
+		if err != nil {
+			slog.Error("PostQueryStream", slog.Any("err", err))
+			app.Event.Emit("result_stream_error", err.Error())
+			return ""
+		}
+
+		// 发送完成事件
+		app.Event.Emit("result_stream_done", "done")
+
+		app.Logger.Info("流式翻译完成",
+			slog.String("result", streamResult),
+			slog.String("translateWay", translateWay.GetName()))
+
+		return streamResult
+	}
+
+	// 不支持流式，使用普通翻译
+	result, err := translateWay.PostQuery(queryText, fromLang, toLang)
+	if err != nil {
+		slog.Error("PostQuery", slog.Any("err", err))
+	}
+
+	app.Logger.Info("Translate",
+		slog.Any("result", result),
+		slog.Any("translateWay", translateWay.GetName()))
+
+	translateRes := strings.Join(result, "\n")
+
+	return translateRes
+}
+
+// TranslateStream 流式翻译逻辑（仅支持 DeepSeek）
+func (a *App) TranslateStream(queryText, fromLang, toLang string) {
+	app.Logger.Info("TranslateStream",
+		slog.Any("queryText", queryText),
+		slog.Any("toLang", toLang),
+		slog.Any("fromLang", fromLang))
+
+	translateWay := translate_service.GetTranslateWay(config.Data.TranslateWay)
 
 	// 检查是否支持流式输出
 	if streamTranslate, ok := translateWay.(translate_service.StreamTranslate); ok {
@@ -102,7 +154,7 @@ func (a *App) ExplainStream(queryText, templateID string) {
 		slog.Any("queryText", queryText),
 		slog.Any("templateID", templateID))
 
-	translateWay := translate_service.GetTransalteWay(config.Data.TranslateWay)
+	translateWay := translate_service.GetTranslateWay(config.Data.TranslateWay)
 
 	// 检查是否支持流式输出
 	if streamTranslate, ok := translateWay.(translate_service.StreamTranslate); ok {
@@ -129,9 +181,9 @@ func (a *App) ExplainStream(queryText, templateID string) {
 	}
 }
 
-// GetTransalteMap 获取所有翻译配置
-func (a *App) GetTransalteMap() string {
-	var translateList = config.Data.Translate
+// GetTranslateMap 获取所有翻译配置
+func (a *App) GetTranslateMap() string {
+	translateList := config.Data.Translate
 	bTranslate, err := json.Marshal(translateList)
 	if err != nil {
 		logrus.WithError(err).Error("Marshal")
@@ -139,16 +191,16 @@ func (a *App) GetTransalteMap() string {
 	return string(bTranslate)
 }
 
-// SetTransalteWay 设置当前翻译服务
-func (a *App) SetTransalteWay(translateWay string) {
+// SetTranslateWay 设置当前翻译服务
+func (a *App) SetTranslateWay(translateWay string) {
 	config.Data.TranslateWay = translateWay
 	translate_service.SetQueryText("")
 	config.Save()
-	slog.Info("SetTransalteList", slog.Any("config.Data.Translate", config.Data.Translate))
+	slog.Info("SetTranslateList", slog.Any("config.Data.Translate", config.Data.Translate))
 }
 
-// GetTransalteWay 获取当前翻译的服务
-func (a *App) GetTransalteWay() string {
+// GetTranslateWay 获取当前翻译的服务
+func (a *App) GetTranslateWay() string {
 	return config.Data.TranslateWay
 }
 
@@ -327,7 +379,6 @@ func ResetToolbarState() {
 
 // CaptureSelectedScreen 截取选中的区域
 func (a *App) CaptureSelectedScreen(startX, startY, width, height float64) {
-
 	croppedImg := screenshot.CaptureSelectedScreen(int(startX), int(startY), int(width), int(height))
 	if croppedImg == nil {
 		return
@@ -355,7 +406,7 @@ func (a *App) CaptureSelectedScreen(startX, startY, width, height float64) {
 	ResetToolbarState()
 
 	// 检查是否使用了流式翻译
-	translateWay := translate_service.GetTransalteWay(config.Data.TranslateWay)
+	translateWay := translate_service.GetTranslateWay(config.Data.TranslateWay)
 
 	// 无论是流式还是普通翻译，都先发送 query 事件让前端准备
 	sendQueryText(queryText)
@@ -373,7 +424,7 @@ func (a *App) CaptureSelectedScreen(startX, startY, width, height float64) {
 
 // 翻译处理
 func processTranslate(queryText string) string {
-	translateWay := translate_service.GetTransalteWay(config.Data.TranslateWay)
+	translateWay := translate_service.GetTranslateWay(config.Data.TranslateWay)
 
 	// 检查是否支持流式输出
 	if streamTranslate, ok := translateWay.(translate_service.StreamTranslate); ok {
@@ -386,7 +437,6 @@ func processTranslate(queryText string) string {
 			slog.Info("发送流式数据块", slog.String("chunk", chunk), slog.Int("length", len(chunk)))
 			app.Event.Emit("result_stream", chunk)
 		})
-
 		if err != nil {
 			slog.Error("PostQueryStream", slog.Any("err", err))
 			app.Event.Emit("result_stream_error", err.Error())
@@ -409,7 +459,7 @@ func processTranslate(queryText string) string {
 		slog.Error("PostQuery", slog.Any("err", err))
 	}
 
-	app.Logger.Info("Transalte",
+	app.Logger.Info("Translate",
 		slog.Any("result", result),
 		slog.Any("translateWay", translateWay.GetName()))
 
@@ -420,7 +470,7 @@ func processTranslate(queryText string) string {
 
 // 解释处理（支持模板选择）
 func processExplain(queryText, templateID string) string {
-	translateWay := translate_service.GetTransalteWay(config.Data.TranslateWay)
+	translateWay := translate_service.GetTranslateWay(config.Data.TranslateWay)
 
 	// 检查是否支持流式输出
 	if streamTranslate, ok := translateWay.(translate_service.StreamTranslate); ok {
@@ -433,7 +483,6 @@ func processExplain(queryText, templateID string) string {
 			slog.Info("发送流式解释数据块", slog.String("chunk", chunk), slog.Int("length", len(chunk)))
 			app.Event.Emit("result_stream", chunk)
 		})
-
 		if err != nil {
 			slog.Error("PostExplainStream", slog.Any("err", err))
 			app.Event.Emit("result_stream_error", err.Error())
@@ -496,7 +545,7 @@ func processHook() {
 				translate_service.SetQueryText(queryText)
 
 				// 检查是否使用了流式翻译
-				translateWay := translate_service.GetTransalteWay(config.Data.TranslateWay)
+				translateWay := translate_service.GetTranslateWay(config.Data.TranslateWay)
 
 				// 无论是流式还是普通翻译，都先发送 query 事件让前端准备
 				sendQueryText(queryText)
@@ -527,6 +576,5 @@ func processHook() {
 		default:
 			app.Logger.Error("processHook", slog.String("msg", msg))
 		}
-
 	}
 }

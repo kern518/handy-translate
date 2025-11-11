@@ -50,19 +50,19 @@ export function GetToolBarPinned() {
 }
 
 /**
- * GetTransalteMap 获取所有翻译配置
+ * GetTranslateMap 获取所有翻译配置
  * @returns {$CancellablePromise<string>}
  */
-export function GetTransalteMap() {
-    return $Call.ByID(3159850429);
+export function GetTranslateMap() {
+    return $Call.ByID(3262062047);
 }
 
 /**
- * GetTransalteWay 获取当前翻译的服务
+ * GetTranslateWay 获取当前翻译的服务
  * @returns {$CancellablePromise<string>}
  */
-export function GetTransalteWay() {
-    return $Call.ByID(3877427008);
+export function GetTranslateWay() {
+    return $Call.ByID(2200911622);
 }
 
 /**
@@ -103,12 +103,12 @@ export function SetToolBarPinned(pinned) {
 }
 
 /**
- * SetTransalteWay 设置当前翻译服务
+ * SetTranslateWay 设置当前翻译服务
  * @param {string} translateWay
  * @returns {$CancellablePromise<void>}
  */
-export function SetTransalteWay(translateWay) {
-    return $Call.ByID(1606326012, translateWay);
+export function SetTranslateWay(translateWay) {
+    return $Call.ByID(3541477634, translateWay);
 }
 
 /**
@@ -130,23 +130,34 @@ export function ToolBarShow(height) {
 }
 
 /**
- * Transalte 翻译逻辑
+ * Translate 翻译逻辑
  * @param {string} queryText
  * @param {string} fromLang
  * @param {string} toLang
  * @returns {$CancellablePromise<string>}
  */
-export function Transalte(queryText, fromLang, toLang) {
-    return $Call.ByID(3553729015, queryText, fromLang, toLang);
+export function Translate(queryText, fromLang, toLang) {
+    return $Call.ByID(2629536045, queryText, fromLang, toLang);
 }
 
 /**
- * TransalteStream 流式翻译逻辑（仅支持 DeepSeek）
+ * Translate 翻译逻辑
+ * @param {string} queryText
+ * @param {string} fromLang
+ * @param {string} toLang
+ * @returns {$CancellablePromise<string>}
+ */
+export function TranslateMeanings(queryText, fromLang, toLang) {
+    return $Call.ByID(3976356541, queryText, fromLang, toLang);
+}
+
+/**
+ * TranslateStream 流式翻译逻辑（仅支持 DeepSeek）
  * @param {string} queryText
  * @param {string} fromLang
  * @param {string} toLang
  * @returns {$CancellablePromise<void>}
  */
-export function TransalteStream(queryText, fromLang, toLang) {
-    return $Call.ByID(769859303, queryText, fromLang, toLang);
+export function TranslateStream(queryText, fromLang, toLang) {
+    return $Call.ByID(609533885, queryText, fromLang, toLang);
 }

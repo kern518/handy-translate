@@ -1,21 +1,60 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Button, Card, CardBody, CardHeader, Divider, Tooltip, Spinner, Skeleton, Tabs, Tab, Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@nextui-org/react";
 import { HeartIcon } from './HeartIcon';
 import { CameraIcon } from './CameraIcon';
 import { BsTranslate } from "react-icons/bs";
 import { MdContentCopy, MdVolumeUp, MdPushPin, MdOutlinePushPin, MdLightbulb } from "react-icons/md";
-import { ToolBarShow, Show, Hide, SetToolBarPinned, GetToolBarPinned, TransalteStream, ExplainStream, GetExplainTemplates, SetDefaultExplainTemplate } from "../../../bindings/handy-translate/app";
+import { ToolBarShow, Show, Hide, SetToolBarPinned, GetToolBarPinned, TranslateStream, Translate, TranslateMeanings, ExplainStream, GetExplainTemplates, SetDefaultExplainTemplate } from "../../../bindings/handy-translate/app";
 import { lingva_tts } from "../../services/tts";
 import { useVoice } from "../../hooks/useVoice";
 import { Events, Window } from "@wailsio/runtime";
 import { useTranslation } from 'react-i18next';
 
+// 常量配置
+const CONSTANTS = {
+  LOADING_HEIGHT: 50,
+  MAX_CONTENT_HEIGHT: 500,
+  DEBOUNCE_DELAY: 50,
+  HIDE_DELAY: 100,
+  COPY_RESET_DELAY: 2000,
+  PLAYING_RESET_DELAY: 1000,
+  WORD_MAX_LENGTH: 20,
+  WORD_REGEX: /^[a-zA-Z]{1,20}$/,
+  CHINESE_REGEX: /[\u4e00-\u9fa5]/,
+  HIGHLIGHT_REGEX: (word) => new RegExp(`\\b(${word}[a-z]*)\\b`, 'gi'),
+  BASE64_REGEX: /^[A-Za-z0-9+/]*={0,2}$/,
+  PART_OF_SPEECH_STYLES: {
+    'noun': 'bg-blue-100 text-blue-800',
+    'verb': 'bg-green-100 text-green-800',
+    'adjective': 'bg-purple-100 text-purple-800',
+    'adverb': 'bg-orange-100 text-orange-800',
+    'pronoun': 'bg-pink-100 text-pink-800',
+    'preposition': 'bg-yellow-100 text-yellow-800',
+    'conjunction': 'bg-indigo-100 text-indigo-800',
+    'interjection': 'bg-red-100 text-red-800',
+  },
+  PART_OF_SPEECH_ABBRS: {
+    'noun': 'n.',
+    'verb': 'v.',
+    'adjective': 'adj.',
+    'adverb': 'adv.',
+    'pronoun': 'pron.',
+    'preposition': 'prep.',
+    'conjunction': 'conj.',
+    'interjection': 'interj.',
+  }
+};
+
 
 export default function ToolBar() {
     const [result, setResult] = useState("")
+    const [resultStream, setResultStream] = useState("")
+    const [resultMeaningsStream, setResultMeaningsStream] = useState("")
     const [queryText, setQueryText] = useState("") // 原始查询文本
     const [isWord, setIsWord] = useState(false) // 是否为单词
     const [wordDetails, setWordDetails] = useState(null) // 词典详情
+    const [translatedDefinitions, setTranslatedDefinitions] = useState({}) // 翻译后的释义 {key: translation}
+    const [translatedExamples, setTranslatedExamples] = useState({}) // 翻译后的例句 {key: translation}
     const streamBufferRef = useRef(''); // 流式缓冲区
     const [isLoading, setIsLoading] = useState(false)
     const [isCopied, setIsCopied] = useState(false)
@@ -52,7 +91,7 @@ export default function ToolBar() {
             try {
                 const data = JSON.parse(result)
                 console.log('获取到解释模板:', data)
-                
+
                 if (data.templates && Object.keys(data.templates).length > 0) {
                     // 转换为数组格式
                     const templatesArray = Object.keys(data.templates).map(id => ({
@@ -60,7 +99,7 @@ export default function ToolBar() {
                         ...data.templates[id]
                     }))
                     setExplainTemplates(templatesArray)
-                    
+
                     // 设置默认模板
                     const defaultId = data.default_template || templatesArray[0]?.id || ''
                     setDefaultTemplate(defaultId)
@@ -76,14 +115,14 @@ export default function ToolBar() {
     }, [])
 
     // 检测是否为单个单词
-    const checkIsWord = (text) => {
+    const checkIsWord = useCallback((text) => {
         if (!text) return false
         // 确保 text 是字符串类型
         const str = typeof text === 'string' ? text : String(text)
         const trimmed = str.trim()
         // 单个单词：只包含字母，长度1-20，无空格
-        return /^[a-zA-Z]{1,20}$/.test(trimmed)
-    }
+        return CONSTANTS.WORD_REGEX.test(trimmed)
+    }, [])
 
     // 获取单词详细信息（使用 Free Dictionary API）
     const fetchWordDetails = async (word) => {
@@ -103,12 +142,12 @@ export default function ToolBar() {
 
     // 复制到剪贴板
     const handleCopy = async () => {
-        if (!result) return
+        if (!(result || resultStream || resultMeaningsStream)) return
 
         try {
-            await navigator.clipboard.writeText(result)
+            await navigator.clipboard.writeText((result || '') + (resultStream || ''))
             setIsCopied(true)
-            setTimeout(() => setIsCopied(false), 2000)
+            setTimeout(() => setIsCopied(false), CONSTANTS.COPY_RESET_DELAY)
         } catch (err) {
             console.error('复制失败:', err)
         }
@@ -264,7 +303,7 @@ export default function ToolBar() {
             console.error('英文播放失败:', err)
             alert(`播放失败: ${err.message}`)
         } finally {
-            setTimeout(() => setIsPlayingEn(false), 1000)
+            setTimeout(() => setIsPlayingEn(false), CONSTANTS.PLAYING_RESET_DELAY)
         }
     }
 
@@ -299,7 +338,7 @@ export default function ToolBar() {
             console.error('中文播放失败:', err)
             alert(`播放失败: ${err.message}`)
         } finally {
-            setTimeout(() => setIsPlayingZh(false), 1000)
+            setTimeout(() => setIsPlayingZh(false), CONSTANTS.PLAYING_RESET_DELAY)
         }
     }
 
@@ -323,7 +362,7 @@ export default function ToolBar() {
             console.error('语音播放失败:', err)
             alert(`播放失败: ${err.message}`)
         } finally {
-            setTimeout(() => setIsPlaying(false), 1000)
+            setTimeout(() => setIsPlaying(false), CONSTANTS.PLAYING_RESET_DELAY)
         }
     }
 
@@ -334,6 +373,10 @@ export default function ToolBar() {
             let result = typeof data.data === 'string' ? data.data : String(data.data || '')
             console.log('收到 result 事件:', { result, type: typeof data.data })
             setResult(result)
+            // 非流式结果到达时，清理旧的流式内容，避免累积显示
+            streamBufferRef.current = ''
+            setResultStream('')
+            setResultMeaningsStream("")
             // ✅ 清除加载状态
             setIsLoading(false)
             // 不在这里计算高度，统一在下面的 useEffect 中处理
@@ -351,6 +394,8 @@ export default function ToolBar() {
             setQueryText(text)
             streamBufferRef.current = '' // 重置流式缓冲区
             setResult('') // 清空显示
+            setResultStream('') // 清空流式缓冲区
+            setResultMeaningsStream("")
             setWordDetails(null) // 清空词典信息
 
             // 检测是否为单词
@@ -358,9 +403,17 @@ export default function ToolBar() {
             setIsWord(isWordCheck)
 
             // 如果是单词，获取词典信息
-            if (isWordCheck && mode === 'translate') {
+            if (isWordCheck && modeRef.current === 'translate') {
                 const details = await fetchWordDetails(text.trim())
                 setWordDetails(details)
+                // 重置翻译缓存
+                setTranslatedDefinitions({})
+                setTranslatedExamples({})
+
+                // 异步翻译所有释义和例句
+                if (details?.meanings) {
+                    translateWordDetails(details)
+                }
             }
 
             // 如果是解释模式，前端主动调用 ExplainStream（使用当前选中的模板）
@@ -385,7 +438,20 @@ export default function ToolBar() {
             }
 
             streamBufferRef.current += chunk // 累积到 ref
-            setResult(streamBufferRef.current) // 更新状态触发重渲染
+            setResultStream(streamBufferRef.current) // 更新状态触发重渲染
+        })
+        const unsubscribeMeaningsStream = Events.On("result_meanings_stream", function (data) {
+            // 确保 chunk 是字符串类型
+            let chunk = typeof data.data === 'string' ? data.data : String(data.data || '')
+            console.log('ToolBar 收到流式数据块:', chunk, '当前总长度:', streamBufferRef.current.length)
+
+            // ✅ 收到第一个数据块时，清除加载状态
+            if (streamBufferRef.current.length === 0 && chunk) {
+                setIsLoading(false)
+            }
+
+            streamBufferRef.current += chunk // 累积到 ref
+            setResultMeaningsStream(streamBufferRef.current) // 更新状态触发重渲染
         })
 
         // 监听流式完成
@@ -401,12 +467,13 @@ export default function ToolBar() {
             if (unsubscribeQuery) unsubscribeQuery()
             if (unsubscribeStream) unsubscribeStream()
             if (unsubscribeStreamDone) unsubscribeStreamDone()
+            if (unsubscribeMeaningsStream) unsubscribeMeaningsStream()
         }
     }, [])
 
     useEffect(() => {
         // 检查是否有内容或正在加载
-        const hasContent = !!(result || wordDetails || isLoading)
+        const hasContent = !!(result || resultStream || resultMeaningsStream || wordDetails || isLoading)
 
         if (!hasContent) {
             // 无内容且未加载时隐藏窗口
@@ -461,7 +528,110 @@ export default function ToolBar() {
         }, 50) // 50ms 防抖延迟
 
         return () => clearTimeout(debounceTimer)
-    }, [result, isWord, wordDetails, isLoading]);
+    }, [result, resultStream, resultMeaningsStream, isWord, wordDetails, isLoading]);
+
+    // 获取词性标签样式
+    const getPartOfSpeechStyle = (partOfSpeech) => {
+        const styles = {
+            'noun': 'bg-blue-100 text-blue-800',
+            'verb': 'bg-green-100 text-green-800',
+            'adjective': 'bg-purple-100 text-purple-800',
+            'adverb': 'bg-orange-100 text-orange-800',
+            'pronoun': 'bg-pink-100 text-pink-800',
+            'preposition': 'bg-yellow-100 text-yellow-800',
+            'conjunction': 'bg-indigo-100 text-indigo-800',
+            'interjection': 'bg-red-100 text-red-800',
+        }
+        return styles[partOfSpeech] || 'bg-gray-100 text-gray-800'
+    }
+
+    // 获取词性缩写
+    const getPartOfSpeechAbbr = (partOfSpeech) => {
+        const abbrs = {
+            'noun': 'n.',
+            'verb': 'v.',
+            'adjective': 'adj.',
+            'adverb': 'adv.',
+            'pronoun': 'pron.',
+            'preposition': 'prep.',
+            'conjunction': 'conj.',
+            'interjection': 'interj.',
+        }
+        return abbrs[partOfSpeech] || partOfSpeech + '.'
+    }
+
+    // 翻译单词详情（释义和例句）- 并行翻译以提高速度
+    const translateWordDetails = async (details) => {
+        if (!details?.meanings) return
+
+        // 收集所有需要翻译的文本
+        const translationTasks = []
+
+        details.meanings.forEach((meaning, meaningIdx) => {
+            if (meaning.definitions) {
+                meaning.definitions.forEach((def, defIdx) => {
+                    const key = `${meaningIdx}-${defIdx}`
+
+                    // 翻译释义
+                    if (def.definition) {
+                        translationTasks.push({
+                            key,
+                            text: def.definition,
+                            type: 'definition'
+                        })
+                    }
+
+                    // 翻译例句
+                    if (def.example) {
+                        translationTasks.push({
+                            key,
+                            text: def.example,
+                            type: 'example'
+                        })
+                    }
+                })
+            }
+        })
+
+        // 并行翻译所有文本
+        const translationPromises = translationTasks.map(async (task) => {
+            try {
+                const translation = await TranslateMeanings(task.text, 'en', 'zh')
+                if (task.type === 'definition') {
+                    setTranslatedDefinitions(prev => ({
+                        ...prev,
+                        [task.key]: translation
+                    }))
+                } else {
+                    setTranslatedExamples(prev => ({
+                        ...prev,
+                        [task.key]: translation
+                    }))
+                }
+            } catch (err) {
+                console.error(`翻译${task.type === 'definition' ? '释义' : '例句'}失败:`, err)
+            }
+        })
+
+        // 等待所有翻译完成（不阻塞UI）
+        Promise.all(translationPromises).catch(err => {
+            console.error('批量翻译出错:', err)
+        })
+    }
+
+    // 播放例句发音
+    const handleSpeakExample = async (exampleText) => {
+        if (!exampleText) return
+        try {
+            const audioData = await lingva_tts.tts(exampleText, 'en')
+            if (audioData) {
+                const bytes = safeAtob(audioData)
+                await playOrStop(bytes)
+            }
+        } catch (err) {
+            console.error('播放例句失败:', err)
+        }
+    }
 
     // 将单词在例句中高亮
     const highlightWord = (text, word) => {
@@ -516,7 +686,7 @@ export default function ToolBar() {
 
     // 渲染词典格式内容
     const renderWordDetailsContent = () => {
-        console.log('renderWordDetailsContent 调用，wordDetails:', wordDetails, 'queryText:', queryText, 'result:', result)
+        console.log('renderWordDetailsContent 调用，wordDetails:', wordDetails, 'queryText:', queryText, 'result:', result, "resultStream:", resultStream)
 
         return (
             <>
@@ -545,32 +715,88 @@ export default function ToolBar() {
                 {/* 词性和释义 */}
                 {wordDetails?.meanings && wordDetails.meanings.length > 0 ? (
                     wordDetails.meanings.map((meaning, idx) => (
-                        <div key={idx} className="mb-2">
-                            {/* 释义列表 */}
-                            {meaning.definitions.map((def, defIdx) => (
-                                <div key={defIdx} className="mb-2">
-                                    {/* 词性缩写 + 英文释义 */}
-                                    <div className="flex gap-2">
-                                        <span className="text-sm text-black font-medium shrink-0">
-                                            {meaning.partOfSpeech === 'noun' ? 'n.' :
-                                                meaning.partOfSpeech === 'verb' ? 'v.' :
-                                                    meaning.partOfSpeech === 'adjective' ? 'adj.' :
-                                                        meaning.partOfSpeech === 'adverb' ? 'adv.' :
-                                                            meaning.partOfSpeech + '.'}
-                                        </span>
-                                        <p className="text-sm text-black leading-relaxed">{def.definition}</p>
-                                    </div>
+                        <div key={idx} className={`mb-4 ${idx > 0 ? 'pt-3 border-t border-gray-200' : ''}`}>
+                            {/* 词性标签 - 使用彩色标签样式 */}
+                            <div className="mb-2">
+                                <span className={`inline-block px-2.5 py-1 rounded-md text-xs font-semibold ${getPartOfSpeechStyle(meaning.partOfSpeech)}`}>
+                                    {getPartOfSpeechAbbr(meaning.partOfSpeech)}
+                                </span>
+                            </div>
 
-                                    {/* 英文例句 - 高亮关键词 */}
-                                    {def.example && (
-                                        <div className="ml-6 mt-1">
-                                            <p className="text-sm text-gray-700 leading-relaxed">
-                                                {highlightWord(def.example, queryText)}
-                                            </p>
+                            {/* 释义列表 */}
+                            <div className="ml-0 space-y-2">
+                                {meaning.definitions.map((def, defIdx) => {
+                                    const translationKey = `${idx}-${defIdx}`
+                                    const definitionTranslation = translatedDefinitions[translationKey]
+                                    const exampleTranslation = translatedExamples[translationKey]
+
+                                    return (
+                                        <div key={defIdx} className="mb-3 last:mb-0">
+                                            {/* 英文释义 + 中文翻译 */}
+                                            <div className="mb-1.5">
+                                                <p className="text-sm text-black leading-relaxed mb-1">{def.definition}</p>
+                                                {definitionTranslation ? (
+                                                    <p className="text-sm text-gray-600 leading-relaxed ml-1">{definitionTranslation}</p>
+                                                ) : (
+                                                    <div className="ml-1 h-4 w-20 bg-gray-200 animate-pulse rounded"></div>
+                                                )}
+                                            </div>
+
+                                            {/* 英文例句 + 中文翻译 - 带播放按钮 */}
+                                            {def.example && (
+                                                <div className="ml-1 mt-2 p-2.5 bg-gray-50 rounded-md border-l-4 border-blue-400 hover:bg-gray-100 transition-colors">
+                                                    <div className="space-y-1.5">
+                                                        <div className="flex items-start gap-2">
+                                                            <div className="flex-1">
+                                                                <p className="text-sm text-gray-700 leading-relaxed italic">
+                                                                    "{highlightWord(def.example, queryText)}"
+                                                                </p>
+                                                            </div>
+                                                            <Tooltip content="播放例句" placement="top">
+                                                                <Button
+                                                                    size="sm"
+                                                                    isIconOnly
+                                                                    variant="light"
+                                                                    aria-label="Play Example"
+                                                                    onPress={() => handleSpeakExample(def.example)}
+                                                                    className="shrink-0 h-6 w-6 min-w-6 hover:bg-gray-200"
+                                                                >
+                                                                    <MdVolumeUp className="text-xs text-gray-600" />
+                                                                </Button>
+                                                            </Tooltip>
+                                                        </div>
+                                                        {/* 中文翻译 */}
+                                                        {exampleTranslation ? (
+                                                            <p className="text-sm text-gray-600 leading-relaxed ml-1">
+                                                                "{exampleTranslation}"
+                                                            </p>
+                                                        ) : (
+                                                            <div className="ml-1 h-4 w-32 bg-gray-200 animate-pulse rounded"></div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {def.word && (
+                                                <div className="pt-2 mt-2 border-t border-gray-200 flex items-center justify-between gap-2">
+                                                    <p className="text-sm text-black font-medium flex-1 leading-relaxed">{exampleTranslation}</p>
+                                                    <Button
+                                                        size="sm"
+                                                        isIconOnly
+                                                        variant="light"
+                                                        aria-label="Play Chinese"
+                                                        onPress={handleSpeakChinese}
+                                                        isLoading={isPlayingZh}
+                                                        className="shrink-0"
+                                                    >
+                                                        <MdVolumeUp className="text-base text-gray-600" />
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
-                                </div>
-                            ))}
+                                    )
+                                })}
+                            </div>
                         </div>
                     ))
                 ) : (
@@ -581,9 +807,9 @@ export default function ToolBar() {
                 )}
 
                 {/* 底部中文翻译 - 始终显示 */}
-                {result && (
+                {resultStream && (
                     <div className="pt-2 mt-2 border-t border-gray-200 flex items-center justify-between gap-2">
-                        <p className="text-sm text-black font-medium flex-1 leading-relaxed">{result}</p>
+                        <p className="text-sm text-black font-medium flex-1 leading-relaxed">{resultStream}</p>
                         <Button
                             size="sm"
                             isIconOnly
@@ -630,16 +856,18 @@ export default function ToolBar() {
                             if (queryText && queryText.trim() !== '') {
                                 setIsLoading(true)
                                 setResult('')
+                                setResultStream('')
+                                setResultMeaningsStream('')
                                 streamBufferRef.current = ''
 
                                 if (key === 'translate') {
-                                    console.log('切换到翻译模式，调用 TransalteStream')
+                                    console.log('切换到翻译模式，调用 TranslateStream')
                                     // 默认使用 auto 和 zh
-                                    await TransalteStream(queryText, 'auto', 'zh')
+                                    await TranslateStream(queryText, 'auto', 'zh')
                                 } else if (key === 'explain') {
                                     console.log('切换到解释模式，调用 ExplainStream')
                                     console.log('selectedTemplate:', selectedTemplate, 'defaultTemplate:', defaultTemplate)
-                                    setWordDetails("")
+                                    setWordDetails(null)
                                     // 使用选中的模板ID，如果没有则使用默认模板
                                     const templateId = selectedTemplate || defaultTemplate || ''
                                     console.log('使用的 templateID:', templateId)
@@ -691,11 +919,13 @@ export default function ToolBar() {
                                     console.log('模板切换，新模板ID:', newTemplateId)
                                     setSelectedTemplate(newTemplateId)
                                     selectedTemplateRef.current = newTemplateId // 同步更新 ref
-                                    
+
                                     // 切换模板后，如果有查询文本，重新解释
                                     if (queryText && queryText.trim() !== '') {
                                         setIsLoading(true)
                                         setResult('')
+                                        setResultStream('')
+                                        setResultMeaningsStream('')
                                         streamBufferRef.current = ''
                                         console.log('调用 ExplainStream，queryText:', queryText, 'templateID:', newTemplateId)
                                         await ExplainStream(queryText, newTemplateId)
@@ -704,7 +934,7 @@ export default function ToolBar() {
                                 className="max-h-[40vh] overflow-y-auto"
                             >
                                 {explainTemplates.map((template) => (
-                                    <DropdownItem 
+                                    <DropdownItem
                                         key={template.id}
                                         description={template.description}
                                     >
@@ -737,7 +967,7 @@ export default function ToolBar() {
                                 color={isCopied ? "success" : "primary"}
                                 aria-label="Copy"
                                 onPress={handleCopy}
-                                isDisabled={!result}
+                                isDisabled={!(result || resultStream)}
                             >
                                 <MdContentCopy />
                             </Button>
@@ -776,7 +1006,7 @@ export default function ToolBar() {
                         ) : (
                             // 普通翻译结果
                             <p className="text-black leading-relaxed whitespace-pre-wrap p-4">
-                                {result}
+                                {resultStream || result}
                             </p>
                         )}
                     </div>

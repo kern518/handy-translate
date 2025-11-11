@@ -2,11 +2,12 @@ package youdao
 
 import (
 	"encoding/json"
+	"log/slog"
+	"strings"
+
 	"handy-translate/config"
 	"handy-translate/translate_service/youdao/utils"
 	"handy-translate/translate_service/youdao/utils/authv3"
-	"log/slog"
-	"strings"
 )
 
 const Way = "youdao"
@@ -31,7 +32,7 @@ func (y *Youdao) PostQuery(query, fromLang, toLang string) ([]string, error) {
 	result := utils.DoPost("https://openapi.youdao.com/api", header, paramsMap, "application/json")
 	// 打印返回结果
 
-	var tr Transalte
+	var tr Translate
 
 	err := json.Unmarshal(result, &tr)
 	if err != nil {
@@ -53,7 +54,6 @@ func (y *Youdao) PostQuery(query, fromLang, toLang string) ([]string, error) {
 }
 
 func createRequestParams(query, fromLang, toLang string) map[string][]string {
-
 	/*
 		note: 将下列变量替换为需要请求的参数
 		取值参考文档: https://ai.youdao.com/DOCSIRMA/html/%E8%87%AA%E7%84%B6%E8%AF%AD%E8%A8%80%E7%BF%BB%E8%AF%91/API%E6%96%87%E6%A1%A3/%E6%96%87%E6%9C%AC%E7%BF%BB%E8%AF%91%E6%9C%8D%E5%8A%A1/%E6%96%87%E6%9C%AC%E7%BF%BB%E8%AF%91%E6%9C%8D%E5%8A%A1-API%E6%96%87%E6%A1%A3.html
@@ -73,7 +73,7 @@ func createRequestParams(query, fromLang, toLang string) map[string][]string {
 	}
 }
 
-type Transalte struct {
+type Translate struct {
 	ReturnPhrase  []string      `json:"returnPhrase"`
 	Query         string        `json:"query"`
 	ErrorCode     string        `json:"errorCode"`

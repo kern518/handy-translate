@@ -28,7 +28,7 @@ import * as builtinServices from '../../../../services/translate';
 import { useConfig, useToastStyle, useVoice } from '../../../../hooks';
 import { sourceTextAtom, detectLanguageAtom } from '../SourceArea';
 import { sourceLanguageAtom, targetLanguageAtom } from '../LanguageArea';
-import { Transalte, TransalteStream } from '../../../../../bindings/handy-translate/app';
+import { Translate, TranslateStream } from '../../../../../bindings/handy-translate/app';
 import { Events, Clipboard } from "@wailsio/runtime";
 
 export default function TargetArea(props) {
@@ -116,10 +116,10 @@ export default function TargetArea(props) {
                 // 如果是 DeepSeek，使用流式 API
                 if (translateServiceName === 'deepseek') {
                     console.log('开始 DeepSeek 流式翻译:', sourceText)
-                    TransalteStream(sourceText, LanguageEnum[sourceLanguage], LanguageEnum[targetLanguage])
+                    TranslateStream(sourceText, LanguageEnum[sourceLanguage], LanguageEnum[targetLanguage])
                 } else {
                     // 其他服务使用普通 API
-                    Transalte(sourceText, LanguageEnum[sourceLanguage], LanguageEnum[targetLanguage]).then((res) => {
+                    Translate(sourceText, LanguageEnum[sourceLanguage], LanguageEnum[targetLanguage]).then((res) => {
                         setResult(res)
                         setIsLoading(false)
                     }).catch((err) => {

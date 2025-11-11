@@ -22,7 +22,7 @@ type StreamTranslate interface {
 	PostExplainStream(query, templateID string, callback func(chunk string)) error
 }
 
-func GetTransalteWay(way string) Translate {
+func GetTranslateWay(way string) Translate {
 	var t Translate
 	switch way {
 	case youdao.Way:
