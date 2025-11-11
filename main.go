@@ -85,8 +85,17 @@ func main() {
 	myMenu := app.Menu.New()
 
 	myMenu.Add("翻译").OnClick(func(ctx *application.Context) {
+		if translate.Window == nil {
+			log.Printf("错误: translate.Window 为 nil")
+			return
+		}
+		log.Printf("显示翻译窗口")
+		// 使用 Center() 和 Show() 显示窗口
 		translate.Window.Center()
 		translate.Window.Show()
+		// 确保窗口获得焦点
+		translate.Window.Focus()
+		log.Printf("翻译窗口已调用 Show() 和 Focus()")
 	})
 
 	myMenu.Add("截图").OnClick(func(ctx *application.Context) {

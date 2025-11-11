@@ -20,9 +20,19 @@ func NewWindow(app *application.App) {
 		URL:       "http://wails.localhost/translate.html",
 	})
 
+	if Window == nil {
+		app.Logger.Error("创建翻译窗口失败: Window 为 nil")
+		return
+	}
+
 	Window.OnWindowEvent(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		app.Logger.Info("[Event] Window WindowClosing win2")
 		e.Cancel()
 		Window.Hide()
+	})
+
+	// 添加窗口显示事件日志，用于调试
+	Window.OnWindowEvent(events.Common.WindowShow, func(e *application.WindowEvent) {
+		app.Logger.Info("[Event] 翻译窗口已显示")
 	})
 }

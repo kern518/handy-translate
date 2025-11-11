@@ -14,7 +14,7 @@ var WindowName = "ToolBar"
 var Window *application.WebviewWindow
 
 var IsPinned = false            // 窗口固定状态
-var QueryResultHeight int = 100 // 高度
+var QueryResultHeight int = 110 // 高度
 var QueryResultWidth int = 450  // 宽度
 
 var toolWindowStyleApplied sync.Once // 确保只应用一次样式
