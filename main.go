@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"handy-translate/config"
+	"handy-translate/history"
 	"handy-translate/window/screenshot"
 	"handy-translate/window/toolbar"
 	"handy-translate/window/translate"
@@ -117,6 +118,10 @@ func main() {
 
 	// 初始化文件和鼠标事件
 	config.Init(projectName)
+
+	// 初始化历史记录服务
+	history.GlobalHistoryService = history.NewHistoryService()
+
 	go processHook()
 
 	err := app.Run()

@@ -1,5 +1,5 @@
 appname = 'handy-translate'
-translate_way = 'youdao'
+translate_way = 'deepseek'
 
 [keyboards]
 screenshot = ['ctrl', 'shift', 'f']
@@ -19,5 +19,35 @@ key = '应用密钥'
 [translate.deepseek]
 name = 'DeepSeek'
 appID = 'deepseek'
-key = ''
+key = '密钥'
+
+[explain_templates]
+default_template = 'programmer'
+
+[explain_templates.templates]
+[explain_templates.templates.programmer]
+name = '技术视角'
+description = '适合解释编程、技术相关术语'
+template = '''你是一名资深程序员，对计算机系统、网络、编程语言和工程实践有深入理解。
+请用简洁、专业、易于程序员快速理解的方式解释以下技术术语。
+要求：
+1. 用程序员的视角说明它是什么及核心机制或原理
+2. 简述它在实际开发或系统中的常见用途
+3. 控制在 3~5 句话内，直击要点，不赘述
+术语：{{.text}}'''
+
+[explain_templates.templates.academic]
+name = '文学视角'
+description = '适合解释文学词语'
+template = '''你是一位拥有极其丰富阅读经验的学者，对古今中外的历史、哲学、文学、科技与人类思想演变有深刻理解。
+请用简洁、专业、易于程序员快速理解的方式解释以下词语。
+要求：
+1. 结合历史与思想背景，点出它的本质与现实意义
+2. 可以快速理解的方式解释它的核心含义
+3. 回答保持在 3～5 句话，言简意赅、富有启发性
+词语：{{.text}}'''
+
+[history]
+enabled = true
+storage_path = "./data"
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"handy-translate/config"
+	"handy-translate/history"
 	"handy-translate/os_api/windows"
 	"handy-translate/translate_service"
 	"handy-translate/utils"
@@ -63,7 +64,7 @@ func (a *App) Translate(queryText, fromLang, toLang string) string {
 	return res
 }
 
-// Translate 翻译逻辑
+// TranslateMeanings 翻译逻辑
 func (a *App) TranslateMeanings(queryText, fromLang, toLang string) string {
 	app.Logger.Info("Translate",
 		slog.Any("queryText", queryText),
@@ -110,6 +111,11 @@ func (a *App) TranslateMeanings(queryText, fromLang, toLang string) string {
 		slog.Any("translateWay", translateWay.GetName()))
 
 	translateRes := strings.Join(result, "\n")
+
+	// 保存翻译历史记录
+	if config.Data.History.Enabled {
+		go history.GlobalHistoryService.SaveTranslateRecord(queryText, translateRes, fromLang, toLang)
+	}
 
 	return translateRes
 }
@@ -160,7 +166,9 @@ func (a *App) ExplainStream(queryText, templateID string) {
 	if streamTranslate, ok := translateWay.(translate_service.StreamTranslate); ok {
 		// 支持流式输出
 		slog.Info("使用流式解释")
+		var streamResult string
 		err := streamTranslate.PostExplainStream(queryText, templateID, func(chunk string) {
+			streamResult += chunk
 			// 每次收到数据块时发送事件到前端
 			slog.Info("发送流式解释数据块", slog.String("chunk", chunk), slog.Int("length", len(chunk)))
 			app.Event.Emit("result_stream", chunk)
@@ -173,11 +181,21 @@ func (a *App) ExplainStream(queryText, templateID string) {
 		} else {
 			// 发送完成事件
 			app.Event.Emit("result_stream_done", "done")
+
+			// 保存解释历史记录
+			if config.Data.History.Enabled {
+				go history.GlobalHistoryService.SaveExplainRecord(queryText, streamResult, templateID)
+			}
 		}
 	} else {
 		// 不支持流式输出，使用普通解释
 		res := processExplain(queryText, templateID)
 		app.Event.Emit("result", res)
+
+		// 保存解释历史记录
+		if config.Data.History.Enabled {
+			go history.GlobalHistoryService.SaveExplainRecord(queryText, res, templateID)
+		}
 	}
 }
 
@@ -450,6 +468,11 @@ func processTranslate(queryText string) string {
 			slog.String("result", streamResult),
 			slog.String("translateWay", translateWay.GetName()))
 
+		// 保存翻译历史记录
+		if config.Data.History.Enabled {
+			go history.GlobalHistoryService.SaveTranslateRecord(queryText, streamResult, fromLang, toLang)
+		}
+
 		return streamResult
 	}
 
@@ -464,6 +487,11 @@ func processTranslate(queryText string) string {
 		slog.Any("translateWay", translateWay.GetName()))
 
 	translateRes := strings.Join(result, "\n")
+
+	// 保存翻译历史记录
+	if config.Data.History.Enabled {
+		go history.GlobalHistoryService.SaveTranslateRecord(queryText, translateRes, fromLang, toLang)
+	}
 
 	return translateRes
 }
@@ -495,6 +523,11 @@ func processExplain(queryText, templateID string) string {
 		app.Logger.Info("流式解释完成",
 			slog.String("result", streamResult),
 			slog.String("translateWay", translateWay.GetName()))
+
+		// 保存解释历史记录
+		if config.Data.History.Enabled {
+			go history.GlobalHistoryService.SaveExplainRecord(queryText, streamResult, templateID)
+		}
 
 		return streamResult
 	}

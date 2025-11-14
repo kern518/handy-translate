@@ -141,7 +141,7 @@ export function Translate(queryText, fromLang, toLang) {
 }
 
 /**
- * Translate 翻译逻辑
+ * TranslateMeanings 翻译逻辑
  * @param {string} queryText
  * @param {string} fromLang
  * @param {string} toLang

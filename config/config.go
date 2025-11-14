@@ -20,6 +20,7 @@ type (
 		TranslateWay    string                    `toml:"translate_way"`
 		Translate       map[string]Translate      `toml:"translate"`
 		ExplainTemplates ExplainTemplatesConfig   `toml:"explain_templates"`
+		History         HistoryConfig             `toml:"history"`
 	}
 
 	Translate struct {
@@ -37,6 +38,11 @@ type (
 		Name        string `toml:"name" json:"name"`
 		Description string `toml:"description" json:"description"`
 		Template    string `toml:"template" json:"template"`
+	}
+
+	HistoryConfig struct {
+		Enabled     bool   `toml:"enabled"`
+		StoragePath string `toml:"storage_path"`
 	}
 )
 
