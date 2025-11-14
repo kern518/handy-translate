@@ -12,37 +12,37 @@ import { useTranslation } from 'react-i18next';
 
 // 常量配置
 const CONSTANTS = {
-  LOADING_HEIGHT: 50,
-  MAX_CONTENT_HEIGHT: 500,
-  DEBOUNCE_DELAY: 50,
-  HIDE_DELAY: 100,
-  COPY_RESET_DELAY: 2000,
-  PLAYING_RESET_DELAY: 1000,
-  WORD_MAX_LENGTH: 20,
-  WORD_REGEX: /^[a-zA-Z]{1,20}$/,
-  CHINESE_REGEX: /[\u4e00-\u9fa5]/,
-  HIGHLIGHT_REGEX: (word) => new RegExp(`\\b(${word}[a-z]*)\\b`, 'gi'),
-  BASE64_REGEX: /^[A-Za-z0-9+/]*={0,2}$/,
-  PART_OF_SPEECH_STYLES: {
-    'noun': 'bg-blue-100 text-blue-800',
-    'verb': 'bg-green-100 text-green-800',
-    'adjective': 'bg-purple-100 text-purple-800',
-    'adverb': 'bg-orange-100 text-orange-800',
-    'pronoun': 'bg-pink-100 text-pink-800',
-    'preposition': 'bg-yellow-100 text-yellow-800',
-    'conjunction': 'bg-indigo-100 text-indigo-800',
-    'interjection': 'bg-red-100 text-red-800',
-  },
-  PART_OF_SPEECH_ABBRS: {
-    'noun': 'n.',
-    'verb': 'v.',
-    'adjective': 'adj.',
-    'adverb': 'adv.',
-    'pronoun': 'pron.',
-    'preposition': 'prep.',
-    'conjunction': 'conj.',
-    'interjection': 'interj.',
-  }
+    LOADING_HEIGHT: 50,
+    MAX_CONTENT_HEIGHT: 500,
+    DEBOUNCE_DELAY: 50,
+    HIDE_DELAY: 100,
+    COPY_RESET_DELAY: 2000,
+    PLAYING_RESET_DELAY: 1000,
+    WORD_MAX_LENGTH: 20,
+    WORD_REGEX: /^[a-zA-Z]{1,20}$/,
+    CHINESE_REGEX: /[\u4e00-\u9fa5]/,
+    HIGHLIGHT_REGEX: (word) => new RegExp(`\\b(${word}[a-z]*)\\b`, 'gi'),
+    BASE64_REGEX: /^[A-Za-z0-9+/]*={0,2}$/,
+    PART_OF_SPEECH_STYLES: {
+        'noun': 'bg-blue-100 text-blue-800',
+        'verb': 'bg-green-100 text-green-800',
+        'adjective': 'bg-purple-100 text-purple-800',
+        'adverb': 'bg-orange-100 text-orange-800',
+        'pronoun': 'bg-pink-100 text-pink-800',
+        'preposition': 'bg-yellow-100 text-yellow-800',
+        'conjunction': 'bg-indigo-100 text-indigo-800',
+        'interjection': 'bg-red-100 text-red-800',
+    },
+    PART_OF_SPEECH_ABBRS: {
+        'noun': 'n.',
+        'verb': 'v.',
+        'adjective': 'adj.',
+        'adverb': 'adv.',
+        'pronoun': 'pron.',
+        'preposition': 'prep.',
+        'conjunction': 'conj.',
+        'interjection': 'interj.',
+    }
 };
 
 
@@ -832,7 +832,7 @@ export default function ToolBar() {
             shadow="lg"
             className='rounded-xl border-none shadow-xl w-full'>
 
-            <CardHeader style={{ WebkitAppRegion: 'drag' }}>
+            <CardHeader style={{ "--wails-draggable": "drag" }}>
 
                 <div className="flex gap-2 items-center w-full justify-between" style={{ WebkitAppRegion: 'drag' }}>
                     <Tooltip content="打开翻译窗口" placement="bottom">
