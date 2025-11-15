@@ -9,6 +9,7 @@ import { lingva_tts } from "../../services/tts";
 import { useVoice } from "../../hooks/useVoice";
 import { Events, Window } from "@wailsio/runtime";
 import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
 
 // 常量配置
 const CONSTANTS = {
@@ -1002,6 +1003,36 @@ export default function ToolBar() {
                             // 词典格式显示（即使没有详细释义也显示）
                             <div className="p-4">
                                 {renderWordDetailsContent()}
+                            </div>
+                        ) : mode === 'explain' ? (
+                            // 解释模式：使用 Markdown 渲染
+                            <div className="markdown-content p-4 text-black leading-relaxed">
+                                <ReactMarkdown
+                                    components={{
+                                        // 自定义样式组件
+                                        h1: ({node, ...props}) => <h1 className="text-2xl font-bold mb-3 mt-4" {...props} />,
+                                        h2: ({node, ...props}) => <h2 className="text-xl font-bold mb-2 mt-3" {...props} />,
+                                        h3: ({node, ...props}) => <h3 className="text-lg font-bold mb-2 mt-3" {...props} />,
+                                        h4: ({node, ...props}) => <h4 className="text-base font-bold mb-1 mt-2" {...props} />,
+                                        p: ({node, ...props}) => <p className="mb-3 leading-relaxed" {...props} />,
+                                        ul: ({node, ...props}) => <ul className="list-disc list-inside mb-3 space-y-1 ml-4" {...props} />,
+                                        ol: ({node, ...props}) => <ol className="list-decimal list-inside mb-3 space-y-1 ml-4" {...props} />,
+                                        li: ({node, ...props}) => <li className="leading-relaxed" {...props} />,
+                                        code: ({node, inline, ...props}) => 
+                                            inline ? (
+                                                <code className="bg-gray-100 text-red-600 px-1.5 py-0.5 rounded text-sm font-mono" {...props} />
+                                            ) : (
+                                                <code className="block bg-gray-100 text-gray-800 p-3 rounded mb-3 overflow-x-auto font-mono text-sm whitespace-pre" {...props} />
+                                            ),
+                                        pre: ({node, ...props}) => <pre className="bg-gray-100 p-3 rounded mb-3 overflow-x-auto" {...props} />,
+                                        blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-gray-300 pl-4 italic my-3 text-gray-700" {...props} />,
+                                        strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
+                                        em: ({node, ...props}) => <em className="italic" {...props} />,
+                                        hr: ({node, ...props}) => <hr className="my-4 border-gray-300" {...props} />,
+                                    }}
+                                >
+                                    {resultStream || result}
+                                </ReactMarkdown>
                             </div>
                         ) : (
                             // 普通翻译结果
