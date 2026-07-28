@@ -20,10 +20,14 @@ export default function Screenshot() {
     const canvasRef = useRef(null);
 
     useEffect(() => {
-        Events.On("screenshotBase64", function (result) {
+        const unsubscribeScreenshot = Events.On("screenshotBase64", function (result) {
             let base64 = result.data
             setImgurl("data:image/png;base64," + base64)
         })
+
+        return () => {
+            if (unsubscribeScreenshot) unsubscribeScreenshot()
+        }
     }, [])
 
     const captureScreenshot = (x, y, width, height) => {

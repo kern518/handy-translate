@@ -8,12 +8,10 @@ import { HiTranslate } from 'react-icons/hi';
 import { LuDelete } from 'react-icons/lu';
 import { MdContentCopy } from 'react-icons/md';
 import { MdSmartButton } from 'react-icons/md';
-import { createWorker } from 'tesseract.js';
 import { useAtomValue } from 'jotai';
 
 import detect from '../../../../utils/lang_detect';
 import * as builtinTtsServices from '../../../../services/tts';
-import * as builtinServices from '../../../../services/translate';
 import { useConfig, useSyncAtom, useVoice, useToastStyle } from '../../../../hooks';
 import { sourceLanguageAtom, targetLanguageAtom } from '../LanguageArea';
 import { Events, Window, Clipboard } from "@wailsio/runtime";
@@ -41,10 +39,14 @@ export default function SourceArea(props) {
         // Events.On("loading", function (data) {
         //     setIsLoading(data.data == 'true')
         // })
-        Events.On("query", function (data) {
+        const unsubscribeQuery = Events.On("query", function (data) {
             let result = typeof data.data === 'string' ? data.data : String(data.data || '')
             setSourceText(result)
         })
+
+        return () => {
+            if (unsubscribeQuery) unsubscribeQuery()
+        }
     }, [])
 
 

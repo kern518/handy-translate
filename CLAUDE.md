@@ -107,7 +107,7 @@ translate_way = "baidu"
 
 [keyboards]
 toolBar = ["center", "", ""]  # 工具栏鼠标中键
-screenshot = ["ctrl", "shift", "f"]  # 截图快捷键
+screenshot = ["alt", "shift", "q"]  # 截图快捷键
 
 [translate.baidu]
 name = "百度翻译"

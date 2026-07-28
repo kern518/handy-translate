@@ -3,7 +3,7 @@ import { Button, Card, CardBody, CardHeader, Divider, Tooltip, Spinner, Skeleton
 import { HeartIcon } from './HeartIcon';
 import { CameraIcon } from './CameraIcon';
 import { BsTranslate } from "react-icons/bs";
-import { MdContentCopy, MdVolumeUp, MdPushPin, MdOutlinePushPin, MdLightbulb, MdCheck, MdPalette } from "react-icons/md";
+import { MdContentCopy, MdVolumeUp, MdPushPin, MdOutlinePushPin, MdLightbulb, MdCheck, MdPalette, MdKeyboardArrowDown, MdSearch } from "react-icons/md";
 import { ToolBarShow, Show, Hide, SetToolBarPinned, GetToolBarPinned, Translate, TranslateMeanings, GetToolbarMode, GetExplainTemplates, SetDefaultExplainTemplate } from "../../../bindings/handy-translate/internal/app/binding";
 import { lingva_tts } from "../../services/tts";
 import { useVoice } from "../../hooks/useVoice";
@@ -20,20 +20,59 @@ const CONSTANTS = {
     HIDE_DELAY: 100,
     COPY_RESET_DELAY: 2000,
     PLAYING_RESET_DELAY: 200,
-    WORD_REGEX: /^[a-zA-Z'-]{1,20}$/,
+    WORD_REGEX: /^[a-zA-Z](?:[a-zA-Z'-]{0,28}[a-zA-Z])?$/,
 }
 
 // TTS 内存缓存：相同文本第二次播放直接返回，无需网络请求
 const ttsCache = new Map()
+const TTS_CACHE_LIMIT = 50
+
+function parseWordDetails(rawResult) {
+    const result = typeof rawResult === 'string' ? rawResult.trim() : String(rawResult || '').trim()
+    if (!result) return null
+
+    // 兼容 Markdown 代码块及模型偶尔附带的前后说明。
+    const withoutFence = result
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim()
+    const firstBrace = withoutFence.indexOf('{')
+    const lastBrace = withoutFence.lastIndexOf('}')
+    const jsonText = firstBrace >= 0 && lastBrace > firstBrace
+        ? withoutFence.slice(firstBrace, lastBrace + 1)
+        : withoutFence
+
+    const parsed = JSON.parse(jsonText)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null
+    }
+
+    return {
+        ...parsed,
+        meanings: Array.isArray(parsed.meanings)
+            ? parsed.meanings.map(meaning => ({
+                ...meaning,
+                definitions: Array.isArray(meaning?.definitions) ? meaning.definitions : [],
+            }))
+            : [],
+    }
+}
 
 async function cachedTts(text, lang) {
-    const key = `${lang}:${text.slice(0, 100)}`
+    const key = `${lang}:${text}`
     if (ttsCache.has(key)) {
+        const cached = ttsCache.get(key)
+        // 重新插入以维护简单的 LRU 顺序。
+        ttsCache.delete(key)
+        ttsCache.set(key, cached)
         // 每次返回副本，避免 decodeAudioData() transfer ArrayBuffer 后缓存失效
-        return ttsCache.get(key).slice()
+        return cached.slice()
     }
     const data = await lingva_tts.tts(text, lang)
     if (data) {
+        if (ttsCache.size >= TTS_CACHE_LIMIT) {
+            ttsCache.delete(ttsCache.keys().next().value)
+        }
         // 存入副本，原始 data 传给 decodeAudioData 后会 detach，不影响缓存
         ttsCache.set(key, data.slice())
     }
@@ -49,6 +88,7 @@ export default function ToolBar() {
     const [isWord, setIsWord] = useState(false) // 是否为单词
     const [wordDetails, setWordDetails] = useState(null) // LLM 返回的词典 JSON
     const [isWordLoading, setIsWordLoading] = useState(false) // 单词查询加载中
+    const queryTextRef = useRef('')
     const streamBufferRef = useRef(''); // 流式缓冲区
     const [isLoading, setIsLoading] = useState(false)
     const [isCopied, setIsCopied] = useState(false)
@@ -68,8 +108,14 @@ export default function ToolBar() {
     const [currentTheme, setCurrentTheme] = useState(() => getSavedThemeId()) // 当前主题
     const playOrStop = useVoice()
     const contentRef = useRef(); // 实际内容容器的引用
+    const resizeFrameRef = useRef(0)
+    const lastRequestedHeightRef = useRef(0)
     const { t } = useTranslation(); // 国际化
     const theme = themes[currentTheme] || themes.warm; // 当前主题对象
+    const copyText = useMemo(
+        () => wordDetails?.translation || resultMeaningsStream || resultStream || result || '',
+        [wordDetails, resultMeaningsStream, resultStream, result],
+    )
 
     // 初始化主题
     useEffect(() => {
@@ -165,7 +211,7 @@ export default function ToolBar() {
         // 确保 text 是字符串类型
         const str = typeof text === 'string' ? text : String(text)
         const trimmed = str.trim()
-        // 单个单词：只包含字母，长度1-20，无空格
+        // 与后端保持一致：首尾为字母，中间可包含连字符或撇号，最长 30 字符。
         return CONSTANTS.WORD_REGEX.test(trimmed)
     }, [])
 
@@ -173,10 +219,10 @@ export default function ToolBar() {
 
     // 复制到剪贴板
     const handleCopy = async () => {
-        if (!(result || resultStream || resultMeaningsStream)) return
+        if (!copyText) return
 
         try {
-            await navigator.clipboard.writeText((result || '') + (resultStream || ''))
+            await navigator.clipboard.writeText(copyText)
             setIsCopied(true)
             setTimeout(() => setIsCopied(false), CONSTANTS.COPY_RESET_DELAY)
         } catch (err) {
@@ -266,6 +312,7 @@ export default function ToolBar() {
         const unsubscribeQuery = Events.On("query", async function (data) {
             // 确保 text 是字符串类型
             const text = typeof data.data === 'string' ? data.data : String(data.data || '')
+            queryTextRef.current = text
 
             // ✅ 立即设置加载状态，防止窗口被隐藏
             setIsLoading(true)
@@ -329,14 +376,22 @@ export default function ToolBar() {
 
         // 监听单词查询结果事件
         const unsubscribeWordQuery = Events.On("word_query_result", function (data) {
-            const result = typeof data.data === 'string' ? data.data : String(data.data || '')
+            const rawResult = typeof data.data === 'string' ? data.data : String(data.data || '')
             try {
-                let jsonStr = result
-                jsonStr = jsonStr.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
-                const parsed = JSON.parse(jsonStr)
-                setWordDetails(parsed)
+                const parsed = parseWordDetails(rawResult)
+                if (parsed) {
+                    setWordDetails(parsed)
+                } else {
+                    throw new Error('单词查询结果不是 JSON 对象')
+                }
             } catch (err) {
-                console.error('解析单词查询结果失败:', err, '原始数据:', result.substring(0, 200))
+                console.error('解析单词查询结果失败:', err, '原始数据:', rawResult.substring(0, 200))
+                // 非流式翻译源可能只返回纯文本。保留卡片布局，避免退化成单行弹窗。
+                setWordDetails({
+                    word: queryTextRef.current,
+                    translation: rawResult,
+                    meanings: [],
+                })
             }
             setIsWordLoading(false)
         })
@@ -357,6 +412,7 @@ export default function ToolBar() {
         const hasContent = !!(result || resultStream || resultMeaningsStream || wordDetails || isLoading || isWordLoading)
 
         if (!hasContent) {
+            lastRequestedHeightRef.current = 0
             // 无内容且未加载时隐藏窗口
             const timer = setTimeout(() => {
                 Hide("ToolBar").catch(() => {
@@ -367,37 +423,48 @@ export default function ToolBar() {
 
         // 如果正在加载，显示固定高度的加载窗口
         if (isLoading) {
-            const loadingHeight = 50 // 加载动画固定高度
+            const loadingHeight = CONSTANTS.LOADING_HEIGHT
+            lastRequestedHeightRef.current = loadingHeight
             ToolBarShow(loadingHeight)
             return
         }
 
-        // 使用防抖延迟来避免流式翻译时频繁更新
-        const debounceTimer = setTimeout(() => {
-            // 使用双重 requestAnimationFrame 确保 DOM 完全更新后再计算高度
-            // 第一个 RAF 等待 React 渲染完成
-            // 第二个 RAF 等待浏览器布局计算完成
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    if (!contentRef.current) {
-                        return
-                    }
+        const content = contentRef.current
+        if (!content) return
 
-                    // 获取实际渲染内容的高度
-                    const contentHeight = contentRef.current.scrollHeight
+        const updateToolbarHeight = () => {
+            cancelAnimationFrame(resizeFrameRef.current)
+            resizeFrameRef.current = requestAnimationFrame(() => {
+                if (!contentRef.current) return
 
-                    // 最大内容高度限制：超过此高度时 CardBody 会出现滚动条
-                    const maxContentHeight = 450
-                    const actualContentHeight = Math.min(contentHeight, maxContentHeight)
+                const measuredHeight = Math.ceil(Math.max(
+                    contentRef.current.scrollHeight,
+                    contentRef.current.getBoundingClientRect().height,
+                ))
+                const minimumHeight = isWord && mode !== 'explain' ? 150 : CONSTANTS.LOADING_HEIGHT
+                const actualContentHeight = Math.min(
+                    Math.max(measuredHeight, minimumHeight),
+                    CONSTANTS.MAX_CONTENT_HEIGHT,
+                )
 
-                    // 调用 ToolBarShow 会自动显示窗口并设置高度
+                if (lastRequestedHeightRef.current !== actualContentHeight) {
+                    lastRequestedHeightRef.current = actualContentHeight
                     ToolBarShow(actualContentHeight)
-                })
+                }
             })
-        }, 50) // 50ms 防抖延迟
+        }
 
-        return () => clearTimeout(debounceTimer)
-    }, [result, resultStream, resultMeaningsStream, isWord, wordDetails, isLoading, isWordLoading]);
+        // 单词卡片包含异步结果和第三方 UI 组件，实际布局可能晚于 React commit。
+        // 持续观察尺寸，避免窗口停留在快速翻译的一行高度。
+        const resizeObserver = new ResizeObserver(updateToolbarHeight)
+        resizeObserver.observe(content)
+        updateToolbarHeight()
+
+        return () => {
+            resizeObserver.disconnect()
+            cancelAnimationFrame(resizeFrameRef.current)
+        }
+    }, [result, resultStream, resultMeaningsStream, isWord, wordDetails, isLoading, isWordLoading, mode]);
 
     // 获取词性标签样式
     const getPartOfSpeechStyle = (partOfSpeech) => {
@@ -620,15 +687,15 @@ export default function ToolBar() {
         <div className={slideAnimClass}>
         <Card
             shadow="none"
-            className='rounded-[20px] w-full bg-white transition-all duration-200 overflow-hidden'
+            className='rounded-[18px] w-full bg-white border border-black/[0.04] transition-all duration-200 overflow-hidden'
             style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
 
-            <CardHeader className={`px-[16px] py-[6px] ${theme.classes.header} flex justify-between items-center`} style={{ "--wails-draggable": "drag" }}>
+            <CardHeader className={`px-[12px] py-[6px] ${theme.classes.header} flex justify-between items-center`} style={{ "--wails-draggable": "drag" }}>
 
-                <div className="flex gap-[8px] items-center w-full justify-between" style={{ WebkitAppRegion: 'drag' }}>
+                <div className="flex gap-[6px] items-center w-full justify-between" style={{ WebkitAppRegion: 'drag' }}>
                     {/* 应用 Logo 面板锚点 */}
-                    <div className={`flex justify-center items-center w-[28px] h-[28px] min-w-[28px] select-none pointer-events-none ${theme.classes.logoBg} rounded-full shadow-sm`}>
-                        <img src="/appicon.png" alt="Handy Translate" className="w-[18px] h-[18px] object-contain drop-shadow-sm" draggable="false" />
+                    <div className={`flex justify-center items-center w-[26px] h-[26px] min-w-[26px] select-none pointer-events-none ${theme.classes.logoBg} rounded-full shadow-sm`}>
+                        <img src="/appicon.png" alt="Handy Translate" className="w-[16px] h-[16px] object-contain drop-shadow-sm" draggable="false" />
                     </div>
 
                     {/* 翻译/解释模式切换 */}
@@ -681,17 +748,20 @@ export default function ToolBar() {
                         />
                     </Tabs>
 
-
                     {/* 解释模式下的模板选择器 */}
                     {mode === 'explain' && explainTemplates.length > 0 && (
                         <Dropdown placement="top">
                             <DropdownTrigger>
                                 <Button
                                     size="sm"
-                                    variant="flat"
-                                    className="min-w-[100px]"
+                                    variant="light"
+                                    endContent={<MdKeyboardArrowDown className="text-[14px] opacity-55 shrink-0" />}
+                                    className="h-[26px] min-w-0 max-w-[104px] px-[9px] gap-[3px] rounded-full bg-white/55 hover:bg-white/80 border border-white/70 text-[11px] font-medium shadow-none"
+                                    style={{ WebkitAppRegion: 'no-drag' }}
                                 >
-                                    {explainTemplates.find(t => t.id === selectedTemplate)?.name || explainTemplates.find(t => t.id === defaultTemplate)?.name || t('translate.template_placeholder')}
+                                    <span className="truncate max-w-[76px]">
+                                        {explainTemplates.find(t => t.id === selectedTemplate)?.name || explainTemplates.find(t => t.id === defaultTemplate)?.name || t('translate.template_placeholder')}
+                                    </span>
                                 </Button>
                             </DropdownTrigger>
                             <DropdownMenu
@@ -755,7 +825,7 @@ export default function ToolBar() {
                                 className={`w-[28px] h-[28px] min-w-[28px] rounded-full active:scale-90 transition-all duration-300 ${isCopied ? theme.classes.copyActive : theme.classes.copyInactive}`}
                                 aria-label="Copy"
                                 onPress={handleCopy}
-                                isDisabled={!(result || resultStream)}
+                                isDisabled={!copyText}
                             >
                                 {isCopied ? <MdCheck className="text-[16px] drop-shadow-sm animate-appearance-in" /> : <MdContentCopy className="text-[16px]" />}
                             </Button>
@@ -811,8 +881,8 @@ export default function ToolBar() {
                     renderLoading()
                 ) : !(result || resultStream || resultMeaningsStream || (isWord && (wordDetails || isWordLoading))) ? (
                     <div ref={contentRef} className="empty-state">
-                        <div className="empty-state-icon">🔍</div>
-                        <span>选中文字即可翻译</span>
+                        <MdSearch className="empty-state-icon" />
+                        <span>选中文字后点击鼠标中键</span>
                     </div>
                 ) : (
                     <div ref={contentRef} className="w-full">

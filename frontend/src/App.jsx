@@ -1,21 +1,19 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter } from 'react-router-dom';
-import ToolBar from './window/ToolBar';
-import Translate from './window/Translate';
-import Screenshot from './window/Screenshot';
 import { useTranslation } from 'react-i18next';
 import './i18n';
-import { useConfig, useSyncAtom } from './hooks';
+import { useConfig } from './hooks';
 
 const windowMap = {
-  root: <ToolBar />,
-  translate: <Translate />,
-  screenshot: <Screenshot />,
+  root: lazy(() => import('./window/ToolBar')),
+  translate: lazy(() => import('./window/Translate')),
+  screenshot: lazy(() => import('./window/Screenshot')),
 };
 
 function App({ variable }) {
   const { i18n } = useTranslation();
   const [appLanguage] = useConfig('app_language', 'zh_cn');
+  const WindowComponent = windowMap[variable];
 
   useEffect(() => {
     if (appLanguage !== null) {
@@ -25,7 +23,9 @@ function App({ variable }) {
 
   return (
     <BrowserRouter>
-      {windowMap[variable]}
+      <Suspense fallback={null}>
+        <WindowComponent />
+      </Suspense>
     </BrowserRouter>
   )
 }

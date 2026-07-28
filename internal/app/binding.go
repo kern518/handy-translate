@@ -2,7 +2,6 @@
 package app
 
 import (
-	"context"
 	"log/slog"
 
 	"handy-translate/config"
@@ -36,7 +35,9 @@ func (b *Binding) Translate(queryText, fromLang, toLang string) string {
 		slog.String("from", fromLang),
 		slog.String("to", toLang))
 
-	return b.app.Translator.Translate(context.Background(), queryText, fromLang, toLang)
+	ctx, cancel, queryID := b.app.beginQuery()
+	defer b.app.finishQuery(queryID, cancel)
+	return b.app.Translator.Translate(ctx, queryText, fromLang, toLang)
 }
 
 // TranslateMeanings 翻译释义接口。
@@ -46,7 +47,9 @@ func (b *Binding) TranslateMeanings(queryText, fromLang, toLang string) string {
 		slog.String("from", fromLang),
 		slog.String("to", toLang))
 
-	return b.app.Translator.TranslateMeanings(context.Background(), queryText, fromLang, toLang)
+	ctx, cancel, queryID := b.app.beginQuery()
+	defer b.app.finishQuery(queryID, cancel)
+	return b.app.Translator.TranslateMeanings(ctx, queryText, fromLang, toLang)
 }
 
 // TranslateStream 流式翻译接口。
@@ -56,7 +59,9 @@ func (b *Binding) TranslateStream(queryText, fromLang, toLang string) {
 		slog.String("from", fromLang),
 		slog.String("to", toLang))
 
-	b.app.Translator.TranslateStream(context.Background(), queryText, fromLang, toLang)
+	ctx, cancel, queryID := b.app.beginQuery()
+	defer b.app.finishQuery(queryID, cancel)
+	b.app.Translator.TranslateStream(ctx, queryText, fromLang, toLang)
 }
 
 // GetTranslateMap 获取所有翻译配置。
@@ -66,12 +71,12 @@ func (b *Binding) GetTranslateMap() string {
 
 // SetTranslateWay 设置当前翻译服务。
 func (b *Binding) SetTranslateWay(translateWay string) {
-	SetTranslateWay(translateWay)
+	b.app.SwitchTranslateWay(translateWay)
 }
 
 // GetTranslateWay 获取当前翻译服务。
 func (b *Binding) GetTranslateWay() string {
-	return config.Data.TranslateWay
+	return config.Snapshot().TranslateWay
 }
 
 // GetExplainTemplates 获取所有解释模板。
@@ -102,7 +107,7 @@ func (b *Binding) Hide(windowName string) {
 // ToolBarShow 显示工具栏弹窗。
 func (b *Binding) ToolBarShow(height float64) {
 	h := int(height) + 56 // CardHeader(~46px) + padding(~10px)，与前端 calc(100vh - 42px) 对齐
-	slog.Info("ToolBarShow",
+	slog.Debug("ToolBarShow",
 		slog.Float64("height", height),
 		slog.Bool("isShowing", b.app.WindowMgr.IsToolbarShowing()))
 	b.app.WindowMgr.ShowToolbarAtCursor(h)
@@ -123,7 +128,11 @@ func (b *Binding) GetToolBarPinned() bool {
 // 结果通过 word_query_result 事件发送（避免 Wails RPC 长时间阻塞）。
 func (b *Binding) QueryWord(word string) {
 	slog.Info("📖 QueryWord 开始", slog.String("word", word))
-	go b.app.Translator.QueryWord(context.Background(), word)
+	ctx, cancel, queryID := b.app.beginQuery()
+	go func() {
+		defer b.app.finishQuery(queryID, cancel)
+		b.app.Translator.QueryWord(ctx, word)
+	}()
 }
 
 // CaptureSelectedScreen 截取选中区域 → OCR → 翻译。

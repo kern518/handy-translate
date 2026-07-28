@@ -35,6 +35,7 @@ type Application struct {
 	// 查询取消机制：每次新查询会取消上一个正在进行的查询
 	queryMu     sync.Mutex
 	cancelQuery context.CancelFunc
+	queryID     uint64
 }
 
 // NewApplication 组装应用所有依赖。
@@ -84,7 +85,7 @@ func (a *Application) RegisterEvents() {
 			currentQuery := a.State.GetCurrentQuery()
 			if currentQuery != "" {
 				a.EventBus.EmitQuery(currentQuery)
-				a.processCurrentQuery(currentQuery, mode)
+				a.startCurrentQuery(currentQuery, mode)
 			}
 		}
 	})
@@ -93,8 +94,9 @@ func (a *Application) RegisterEvents() {
 // SetToolbarMode 设置工具栏模式并保存配置。
 func (a *Application) SetToolbarMode(mode string) {
 	a.State.SetToolbarMode(mode)
-	config.Data.ToolbarMode = mode
-	if err := config.Save(); err != nil {
+	if err := config.Update(func(data *config.Config) {
+		data.ToolbarMode = mode
+	}); err != nil {
 		slog.Error("Failed to save config", slog.String("error", err.Error()))
 	}
 }
@@ -144,30 +146,53 @@ func (a *Application) handleMouseEvent() {
 		a.EventBus.EmitQuery(queryText)
 
 		mode := a.State.GetToolbarMode()
-		a.processCurrentQuery(queryText, mode)
+		a.startCurrentQuery(queryText, mode)
 	}
 }
 
-func (a *Application) processCurrentQuery(queryText, mode string) {
-	// 取消上一个正在执行的查询
+// startCurrentQuery 立即取消旧查询并异步启动新查询，避免 Hook 消费循环
+// 被网络请求占用。queryID 用于确保旧任务结束时不会清理新任务的取消函数。
+func (a *Application) startCurrentQuery(queryText, mode string) {
+	ctx, cancel, queryID := a.beginQuery()
+
+	go func() {
+		defer a.finishQuery(queryID, cancel)
+		a.processCurrentQuery(ctx, queryText, mode)
+	}()
+}
+
+func (a *Application) beginQuery() (context.Context, context.CancelFunc, uint64) {
 	a.queryMu.Lock()
+	defer a.queryMu.Unlock()
+
 	if a.cancelQuery != nil {
 		a.cancelQuery()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelQuery = cancel
+	a.queryID++
+	return ctx, cancel, a.queryID
+}
+
+func (a *Application) finishQuery(queryID uint64, cancel context.CancelFunc) {
+	cancel()
+	a.queryMu.Lock()
+	if a.queryID == queryID {
+		a.cancelQuery = nil
+	}
 	a.queryMu.Unlock()
+}
 
-	defer cancel() // 查询结束后清理
-
+func (a *Application) processCurrentQuery(ctx context.Context, queryText, mode string) {
 	slog.Info("处理查询", slog.String("mode", mode), slog.Int("textLen", len(queryText)))
 	fl, tl := a.State.GetLangs()
 
 	switch mode {
 	case window.ExplainMode:
-		templateID := config.Data.ExplainTemplates.DefaultTemplate
+		currentConfig := config.Snapshot()
+		templateID := currentConfig.ExplainTemplates.DefaultTemplate
 		if templateID == "" {
-			for id := range config.Data.ExplainTemplates.Templates {
+			for id := range currentConfig.ExplainTemplates.Templates {
 				templateID = id
 				break
 			}
@@ -227,7 +252,19 @@ func TruncateText(text string, maxLen int) string {
 
 // GetTranslateMapJSON 获取所有翻译配置的 JSON 字符串。
 func GetTranslateMapJSON() string {
-	b, err := json.Marshal(config.Data.Translate)
+	// 前端只需要服务名称来渲染选择列表。绝不能把 API Key、
+	// AppID、BaseURL 等完整凭据暴露给 WebView JavaScript。
+	type publicProvider struct {
+		Name string `json:"name"`
+	}
+
+	currentConfig := config.Snapshot()
+	providers := make(map[string]publicProvider, len(currentConfig.Translate))
+	for id, provider := range currentConfig.Translate {
+		providers[id] = publicProvider{Name: provider.Name}
+	}
+
+	b, err := json.Marshal(providers)
 	if err != nil {
 		slog.Error("Marshal", slog.Any("error", err))
 		return "{}"
@@ -237,12 +274,13 @@ func GetTranslateMapJSON() string {
 
 // GetExplainTemplatesJSON 获取所有解释模板的 JSON 字符串。
 func GetExplainTemplatesJSON() string {
-	if len(config.Data.ExplainTemplates.Templates) == 0 {
+	currentConfig := config.Snapshot()
+	if len(currentConfig.ExplainTemplates.Templates) == 0 {
 		return "{}"
 	}
 
 	templates := make(map[string]map[string]interface{})
-	for id, tmpl := range config.Data.ExplainTemplates.Templates {
+	for id, tmpl := range currentConfig.ExplainTemplates.Templates {
 		templates[id] = map[string]interface{}{
 			"id":          id,
 			"name":        tmpl.Name,
@@ -251,7 +289,7 @@ func GetExplainTemplatesJSON() string {
 	}
 
 	result := map[string]interface{}{
-		"default_template": config.Data.ExplainTemplates.DefaultTemplate,
+		"default_template": currentConfig.ExplainTemplates.DefaultTemplate,
 		"templates":        templates,
 	}
 
@@ -263,18 +301,43 @@ func GetExplainTemplatesJSON() string {
 	return string(b)
 }
 
-// SetTranslateWay 设置当前翻译服务。
-func SetTranslateWay(way string) {
-	config.Data.TranslateWay = way
-	if err := config.Save(); err != nil {
-		slog.Error("Failed to save config", slog.String("error", err.Error()))
+// SetTranslateWay 设置当前翻译服务，返回是否切换成功。
+func SetTranslateWay(way string) bool {
+	currentConfig := config.Snapshot()
+	if _, ok := currentConfig.Translate[way]; !ok {
+		slog.Warn("忽略未知的翻译服务", slog.String("provider", way))
+		return false
 	}
+
+	if err := config.Update(func(data *config.Config) {
+		data.TranslateWay = way
+	}); err != nil {
+		slog.Error("Failed to save config", slog.String("error", err.Error()))
+		return false
+	}
+	slog.Info("翻译服务已切换", slog.String("provider", way))
+	return true
+}
+
+// SwitchTranslateWay 切换翻译服务，并立即用新服务重新处理当前文本。
+func (a *Application) SwitchTranslateWay(way string) bool {
+	if !SetTranslateWay(way) {
+		return false
+	}
+
+	currentQuery := a.State.GetCurrentQuery()
+	if currentQuery != "" {
+		a.EventBus.EmitQuery(currentQuery)
+		a.startCurrentQuery(currentQuery, a.State.GetToolbarMode())
+	}
+	return true
 }
 
 // SetDefaultExplainTemplate 设置默认解释模板。
 func SetDefaultExplainTemplate(templateID string) {
-	config.Data.ExplainTemplates.DefaultTemplate = templateID
-	if err := config.Save(); err != nil {
+	if err := config.Update(func(data *config.Config) {
+		data.ExplainTemplates.DefaultTemplate = templateID
+	}); err != nil {
 		slog.Error("Failed to save config", slog.String("error", err.Error()))
 	}
 }

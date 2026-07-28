@@ -46,6 +46,9 @@ type Manager struct {
 	QueryResultHeight int
 	QueryResultWidth  int
 	toolbarShowing    bool
+	toolbarAnchorX    int
+	toolbarAnchorY    int
+	toolbarAnchorSet  bool
 }
 
 // NewManager 创建窗口管理器。
@@ -77,6 +80,9 @@ func (m *Manager) Hide(windowName string) {
 		return
 	}
 	win.Hide()
+	if windowName == ToolbarWindowName {
+		m.ResetToolbarState()
+	}
 }
 
 // GetWindow 通过名称获取窗口。
@@ -119,6 +125,7 @@ func (m *Manager) ResetToolbarState() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.toolbarShowing = false
+	m.toolbarAnchorSet = false
 }
 
 // SetPinned 设置工具栏固定状态（同时操作窗口置顶）。
@@ -127,8 +134,11 @@ func (m *Manager) SetPinned(pinned bool) {
 	m.isPinned = pinned
 	m.mu.Unlock()
 
-	config.Data.ToolbarPinned = pinned
-	_ = config.Save()
+	if err := config.Update(func(data *config.Config) {
+		data.ToolbarPinned = pinned
+	}); err != nil {
+		slog.Error("保存工具栏固定状态失败", slog.Any("error", err))
+	}
 
 	if m.Toolbar != nil {
 		m.Toolbar.SetAlwaysOnTop(pinned)
@@ -155,33 +165,51 @@ func (m *Manager) ShowToolbarAtCursor(height int) {
 	m.QueryResultHeight = h
 	showing := m.toolbarShowing
 	isPinned := m.isPinned
+	anchorX := m.toolbarAnchorX
+	anchorY := m.toolbarAnchorY
+	anchorSet := m.toolbarAnchorSet
 	m.mu.Unlock()
 
 	ww := w.Width() // 窗口宽度
 	w.SetSize(ww, h)
 	w.SetAlwaysOnTop(isPinned)
 
-	// 如果窗口已经显示，只调整大小
-	if showing {
+	// 固定窗口由用户决定位置，内容变化时只调整大小。
+	if showing && isPinned {
 		return
 	}
 
-	xval := 0
-	yval := 0
-
-	if runtime.GOOS == "windows" {
+	xval := anchorX
+	yval := anchorY
+	if !showing || !anchorSet {
+		if runtime.GOOS != "windows" {
+			slog.Error("仅支持Windows平台", slog.String("platform", runtime.GOOS))
+			return
+		}
 		pos := windows.GetCursorPos()
 		xval, yval = int(pos.X), int(pos.Y)
-	} else {
-		slog.Error("仅支持Windows平台", slog.String("platform", runtime.GOOS))
-		return
+
+		m.mu.Lock()
+		m.toolbarAnchorX = xval
+		m.toolbarAnchorY = yval
+		m.toolbarAnchorSet = true
+		m.mu.Unlock()
 	}
 
 	// 获取光标所在屏幕的工作区域（排除任务栏）
 	// 注意：w.GetScreen() 返回的是窗口所在屏幕。多屏幕环境下，光标可能在
 	// 另一个屏幕上，所以先将窗口移动到光标位置，确保 GetScreen 返回正确的屏幕。
-	w.SetPosition(xval, yval)
-	sc, _ := w.GetScreen()
+	// 窗口首次显示时需要这样做；后续内容扩高时窗口已经位于正确的屏幕，
+	// 不再临时移动到光标位置，避免可见窗口发生闪烁。
+	if !showing {
+		w.SetPosition(xval, yval)
+	}
+	sc, err := w.GetScreen()
+	if err != nil || sc == nil {
+		slog.Error("ShowToolbarAtCursor: 获取屏幕工作区失败",
+			slog.Any("error", err))
+		return
+	}
 	workArea := sc.WorkArea
 
 	const gap = 10   // 窗口与光标之间的间距
@@ -311,6 +339,11 @@ func (m *Manager) ShowToolbarAtCursor(height int) {
 	// 通知前端滑入方向
 	if m.eventBus != nil {
 		m.eventBus.EmitToolbarSlideDirection(c.name)
+	}
+
+	// 窗口已经显示时，尺寸变化后重新定位即可，不重复调用显示 API。
+	if showing {
+		return
 	}
 
 	// 显示窗口

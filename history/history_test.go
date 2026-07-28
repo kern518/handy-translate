@@ -1,7 +1,9 @@
 package history
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -67,5 +69,27 @@ func TestDisabledHistoryService(t *testing.T) {
 	filePath := "./test_data/history/translate/" + date + ".json"
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 		t.Errorf("历史记录功能禁用时不应该创建文件: %s", filePath)
+	}
+}
+
+func TestHistoryFileRemainsValidAfterMultipleWrites(t *testing.T) {
+	storagePath := t.TempDir()
+	service := NewHistoryService(true, storagePath)
+
+	service.SaveTranslateRecord("first", "第一", "en", "zh")
+	service.SaveTranslateRecord("second", "第二", "en", "zh")
+
+	date := time.Now().Format("2006-01-02")
+	filePath := filepath.Join(storagePath, "history", "translate", date+".json")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("read history: %v", err)
+	}
+	var records []*HistoryRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		t.Fatalf("history JSON is invalid: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("record count = %d, want 2", len(records))
 	}
 }

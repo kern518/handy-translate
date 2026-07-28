@@ -9,6 +9,7 @@ screenshot.png
 .task
 bin
 handy-translate.exe
+*.exe~
 .vscode
 frontend/dist
 data

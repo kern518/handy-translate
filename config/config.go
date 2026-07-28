@@ -2,11 +2,10 @@ package config
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
+	"sync"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -16,6 +15,8 @@ var Data Config
 
 // configFilePath 存储配置文件的绝对路径，Init 和 Save 共用。
 var configFilePath string
+var saveMu sync.Mutex
+var dataMu sync.RWMutex
 
 type (
 	Config struct {
@@ -54,56 +55,198 @@ type (
 	}
 )
 
+// DefaultConfig 返回可安全启动的默认配置。所有凭据均为空，
+// 首次启动时会将其写入 config.toml，避免空 map 导致后续空指针。
+func DefaultConfig() Config {
+	return Config{
+		Appname:      "handy-translate",
+		TranslateWay: "deepseek",
+		ToolbarMode:  "translate",
+		Keyboards: map[string][]string{
+			"screenshot": {"alt", "shift", "q"},
+			"toolBar":    {"center", "", ""},
+		},
+		Translate: map[string]Translate{
+			"baidu":    {Name: "百度翻译"},
+			"youdao":   {Name: "有道翻译"},
+			"caiyun":   {Name: "彩云小译"},
+			"deepseek": {Name: "DeepSeek", AppID: "deepseek"},
+			"minimax": {
+				Name:    "MiniMax",
+				AppID:   "minimax",
+				BaseURL: "https://api.minimaxi.com",
+				Model:   "MiniMax-M2.7",
+			},
+			"google": {
+				Name:    "Google Gemini",
+				AppID:   "google",
+				BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+				Model:   "gemini-2.0-flash",
+			},
+		},
+		ExplainTemplates: ExplainTemplatesConfig{
+			DefaultTemplate: "programmer",
+			Templates: map[string]ExplainTemplate{
+				"programmer": {
+					Name:        "技术视角",
+					Description: "适合解释编程、技术相关术语",
+					Template:    "请从程序员视角简洁解释以下术语，说明核心原理和常见用途，控制在 3～5 句话：{{.text}}",
+				},
+				"academic": {
+					Name:        "文学视角",
+					Description: "适合解释文学词语",
+					Template:    "请结合历史与思想背景，简洁解释以下词语的核心含义和现实意义，控制在 3～5 句话：{{.text}}",
+				},
+			},
+		},
+		History: HistoryConfig{
+			Enabled:     true,
+			StoragePath: "./data",
+		},
+	}
+}
+
 // Init 初始化配置。
 func Init(projectName string) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		slog.Error("获取工作目录失败", slog.Any("error", err))
-		return
-	}
+	defaults := DefaultConfig()
+	dataMu.Lock()
+	Data = defaults
+	dataMu.Unlock()
 
-	idx := strings.Index(cwd, projectName)
-	if idx == -1 {
-		slog.Error("工作目录中未找到项目名，将使用默认配置",
-			slog.String("cwd", cwd),
-			slog.String("projectName", projectName))
-		return
-	}
-
-	configDir := cwd[:idx+len(projectName)]
+	configDir := resolveConfigDir(projectName)
 	configFilePath = filepath.Join(configDir, "config.toml")
 
-	configFile, err := os.Open(configFilePath)
-	if err != nil {
-		slog.Error("打开配置文件失败，将使用默认配置", slog.Any("error", err))
+	fd, err := os.ReadFile(configFilePath)
+	if os.IsNotExist(err) {
+		if saveErr := Save(); saveErr != nil {
+			slog.Error("创建默认配置失败", slog.Any("error", saveErr))
+		} else {
+			slog.Warn("配置文件不存在，已创建安全的默认配置",
+				slog.String("path", configFilePath))
+		}
 		return
 	}
-	defer configFile.Close()
+	if err != nil {
+		slog.Error("读取配置文件失败，将使用默认配置", slog.Any("error", err))
+		return
+	}
 
-	fd, err := io.ReadAll(configFile)
-	if err != nil {
-		slog.Error("读取配置文件失败", slog.Any("error", err))
-		return
-	}
-	err = toml.Unmarshal(fd, &Data)
-	if err != nil {
+	loaded := DefaultConfig()
+	if err := toml.Unmarshal(fd, &loaded); err != nil {
 		slog.Error("解析配置文件失败", slog.Any("error", err))
 		return
 	}
 
-	// 只在调试模式下打印配置（减少启动时 I/O）
-	if os.Getenv("DEBUG") == "true" {
-		fmt.Printf("配置已加载: %+v\n", Data)
+	normalizeConfig(&loaded)
+	dataMu.Lock()
+	Data = loaded
+	dataMu.Unlock()
+
+	slog.Info("配置已加载",
+		slog.String("path", configFilePath),
+		slog.String("translateWay", loaded.TranslateWay),
+		slog.Int("providerCount", len(loaded.Translate)))
+}
+
+func resolveConfigDir(projectName string) string {
+	if cwd, err := os.Getwd(); err == nil {
+		for dir := cwd; ; dir = filepath.Dir(dir) {
+			if filepath.Base(dir) == projectName || fileExists(filepath.Join(dir, "config.toml.bak")) {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+		}
 	}
+
+	if executable, err := os.Executable(); err == nil {
+		return filepath.Dir(executable)
+	}
+	return "."
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func normalizeConfig(data *Config) {
+	defaults := DefaultConfig()
+	if data.Appname == "" {
+		data.Appname = defaults.Appname
+	}
+	if data.TranslateWay == "" {
+		data.TranslateWay = defaults.TranslateWay
+	}
+	if data.ToolbarMode != "translate" && data.ToolbarMode != "explain" {
+		data.ToolbarMode = defaults.ToolbarMode
+	}
+	if data.Keyboards == nil {
+		data.Keyboards = defaults.Keyboards
+	}
+	if len(data.Keyboards["screenshot"]) == 0 {
+		data.Keyboards["screenshot"] = defaults.Keyboards["screenshot"]
+	}
+	if data.Translate == nil {
+		data.Translate = make(map[string]Translate)
+	}
+	for name, defaultProvider := range defaults.Translate {
+		if _, exists := data.Translate[name]; !exists {
+			data.Translate[name] = defaultProvider
+		}
+	}
+	if data.ExplainTemplates.Templates == nil {
+		data.ExplainTemplates = defaults.ExplainTemplates
+	}
+	if data.History.StoragePath == "" {
+		data.History.StoragePath = defaults.History.StoragePath
+	}
+}
+
+// normalize 修复全局配置中的缺失字段。仅供包内兼容和测试使用。
+func normalize() {
+	dataMu.Lock()
+	defer dataMu.Unlock()
+	normalizeConfig(&Data)
+}
+
+// Snapshot 返回配置的深拷贝，调用方可安全读取其中的 map 和 slice。
+func Snapshot() Config {
+	dataMu.RLock()
+	defer dataMu.RUnlock()
+	return cloneConfig(Data)
+}
+
+// Update 在同一把锁下修改配置并保存一致的快照。
+func Update(mutator func(*Config)) error {
+	if mutator == nil {
+		return fmt.Errorf("config mutator is nil")
+	}
+
+	dataMu.Lock()
+	defer dataMu.Unlock()
+	mutator(&Data)
+	snapshot := cloneConfig(Data)
+
+	return saveSnapshot(snapshot)
 }
 
 // Save 保存配置到文件（原子写入）。
 func Save() error {
+	return saveSnapshot(Snapshot())
+}
+
+func saveSnapshot(snapshot Config) error {
+	saveMu.Lock()
+	defer saveMu.Unlock()
+
 	if configFilePath == "" {
 		configFilePath = "./config.toml"
 	}
 
-	data, err := toml.Marshal(&Data)
+	data, err := toml.Marshal(&snapshot)
 	if err != nil {
 		slog.Error("Marshal config failed", slog.Any("error", err))
 		return fmt.Errorf("marshal config: %w", err)
@@ -114,7 +257,7 @@ func Save() error {
 	tempFilePath := configFilePath + ".tmp"
 
 	// 创建临时文件
-	file, err := os.Create(tempFilePath)
+	file, err := os.OpenFile(tempFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		slog.Error("Create temp config file failed", slog.Any("error", err))
 		return fmt.Errorf("create temp file: %w", err)
@@ -148,4 +291,34 @@ func Save() error {
 
 	slog.Debug("Config saved successfully")
 	return nil
+}
+
+func cloneConfig(source Config) Config {
+	cloned := source
+
+	if source.Keyboards != nil {
+		cloned.Keyboards = make(map[string][]string, len(source.Keyboards))
+		for name, keys := range source.Keyboards {
+			cloned.Keyboards[name] = append([]string(nil), keys...)
+		}
+	}
+
+	if source.Translate != nil {
+		cloned.Translate = make(map[string]Translate, len(source.Translate))
+		for name, provider := range source.Translate {
+			cloned.Translate[name] = provider
+		}
+	}
+
+	if source.ExplainTemplates.Templates != nil {
+		cloned.ExplainTemplates.Templates = make(
+			map[string]ExplainTemplate,
+			len(source.ExplainTemplates.Templates),
+		)
+		for name, template := range source.ExplainTemplates.Templates {
+			cloned.ExplainTemplates.Templates[name] = template
+		}
+	}
+
+	return cloned
 }

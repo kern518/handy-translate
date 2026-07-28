@@ -22,66 +22,66 @@ import (
 type baiduAdapter struct{ inner *baidu.Baidu }
 
 func (a *baiduAdapter) Name() string { return baidu.Way }
-func (a *baiduAdapter) Translate(_ context.Context, req TranslateRequest) ([]string, error) {
-	return a.inner.PostQuery(req.Text, req.SourceLang, req.TargetLang)
+func (a *baiduAdapter) Translate(ctx context.Context, req TranslateRequest) ([]string, error) {
+	return a.inner.PostQueryContext(ctx, req.Text, req.SourceLang, req.TargetLang)
 }
 
 // caiyun 适配器
 type caiyunAdapter struct{ inner *caiyun.Caiyun }
 
 func (a *caiyunAdapter) Name() string { return caiyun.Way }
-func (a *caiyunAdapter) Translate(_ context.Context, req TranslateRequest) ([]string, error) {
-	return a.inner.PostQuery(req.Text, req.SourceLang, req.TargetLang)
+func (a *caiyunAdapter) Translate(ctx context.Context, req TranslateRequest) ([]string, error) {
+	return a.inner.PostQueryContext(ctx, req.Text, req.SourceLang, req.TargetLang)
 }
 
 // youdao 适配器
 type youdaoAdapter struct{ inner *youdao.Youdao }
 
 func (a *youdaoAdapter) Name() string { return youdao.Way }
-func (a *youdaoAdapter) Translate(_ context.Context, req TranslateRequest) ([]string, error) {
-	return a.inner.PostQuery(req.Text, req.SourceLang, req.TargetLang)
+func (a *youdaoAdapter) Translate(ctx context.Context, req TranslateRequest) ([]string, error) {
+	return a.inner.PostQueryContext(ctx, req.Text, req.SourceLang, req.TargetLang)
 }
 
 // google 适配器（支持流式）
 type googleAdapter struct{ inner *google.Google }
 
 func (a *googleAdapter) Name() string { return google.Way }
-func (a *googleAdapter) Translate(_ context.Context, req TranslateRequest) ([]string, error) {
-	return a.inner.PostQuery(req.Text, req.SourceLang, req.TargetLang)
+func (a *googleAdapter) Translate(ctx context.Context, req TranslateRequest) ([]string, error) {
+	return a.inner.PostQueryContext(ctx, req.Text, req.SourceLang, req.TargetLang)
 }
-func (a *googleAdapter) TranslateStream(_ context.Context, req TranslateRequest, onChunk func(string)) error {
-	return a.inner.PostQueryStream(req.Text, req.SourceLang, req.TargetLang, onChunk)
+func (a *googleAdapter) TranslateStream(ctx context.Context, req TranslateRequest, onChunk func(string)) error {
+	return a.inner.PostQueryStreamContext(ctx, req.Text, req.SourceLang, req.TargetLang, onChunk)
 }
-func (a *googleAdapter) ExplainStream(_ context.Context, text, templateID string, onChunk func(string)) error {
-	return a.inner.PostExplainStream(text, templateID, onChunk)
+func (a *googleAdapter) ExplainStream(ctx context.Context, text, templateID string, onChunk func(string)) error {
+	return a.inner.PostExplainStreamContext(ctx, text, templateID, onChunk)
 }
 
 // deepseek 适配器（支持流式）
 type deepseekAdapter struct{ inner *deepseek.Deepseek }
 
 func (a *deepseekAdapter) Name() string { return deepseek.Way }
-func (a *deepseekAdapter) Translate(_ context.Context, req TranslateRequest) ([]string, error) {
-	return a.inner.PostQuery(req.Text, req.SourceLang, req.TargetLang)
+func (a *deepseekAdapter) Translate(ctx context.Context, req TranslateRequest) ([]string, error) {
+	return a.inner.PostQueryContext(ctx, req.Text, req.SourceLang, req.TargetLang)
 }
-func (a *deepseekAdapter) TranslateStream(_ context.Context, req TranslateRequest, onChunk func(string)) error {
-	return a.inner.PostQueryStream(req.Text, req.SourceLang, req.TargetLang, onChunk)
+func (a *deepseekAdapter) TranslateStream(ctx context.Context, req TranslateRequest, onChunk func(string)) error {
+	return a.inner.PostQueryStreamContext(ctx, req.Text, req.SourceLang, req.TargetLang, onChunk)
 }
-func (a *deepseekAdapter) ExplainStream(_ context.Context, text, templateID string, onChunk func(string)) error {
-	return a.inner.PostExplainStream(text, templateID, onChunk)
+func (a *deepseekAdapter) ExplainStream(ctx context.Context, text, templateID string, onChunk func(string)) error {
+	return a.inner.PostExplainStreamContext(ctx, text, templateID, onChunk)
 }
 
 // minimax 适配器（支持流式）
 type minimaxAdapter struct{ inner *minimax.Minimax }
 
 func (a *minimaxAdapter) Name() string { return minimax.Way }
-func (a *minimaxAdapter) Translate(_ context.Context, req TranslateRequest) ([]string, error) {
-	return a.inner.PostQuery(req.Text, req.SourceLang, req.TargetLang)
+func (a *minimaxAdapter) Translate(ctx context.Context, req TranslateRequest) ([]string, error) {
+	return a.inner.PostQueryContext(ctx, req.Text, req.SourceLang, req.TargetLang)
 }
-func (a *minimaxAdapter) TranslateStream(_ context.Context, req TranslateRequest, onChunk func(string)) error {
-	return a.inner.PostQueryStream(req.Text, req.SourceLang, req.TargetLang, onChunk)
+func (a *minimaxAdapter) TranslateStream(ctx context.Context, req TranslateRequest, onChunk func(string)) error {
+	return a.inner.PostQueryStreamContext(ctx, req.Text, req.SourceLang, req.TargetLang, onChunk)
 }
-func (a *minimaxAdapter) ExplainStream(_ context.Context, text, templateID string, onChunk func(string)) error {
-	return a.inner.PostExplainStream(text, templateID, onChunk)
+func (a *minimaxAdapter) ExplainStream(ctx context.Context, text, templateID string, onChunk func(string)) error {
+	return a.inner.PostExplainStreamContext(ctx, text, templateID, onChunk)
 }
 
 // ──────────────────────────────────────────────

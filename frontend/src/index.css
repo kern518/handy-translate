@@ -332,22 +332,23 @@ body {
    空状态样式
    ============================================ */
 
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px;
-  min-height: 80px;
-  color: var(--color-empty, #B8A08A);
-  font-size: 14px;
-  gap: 8px;
-}
+  .empty-state {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 16px;
+    min-height: 52px;
+    color: var(--color-empty, #B8A08A);
+    font-size: 12.5px;
+    gap: 8px;
+  }
 
-.empty-state-icon {
-  font-size: 22px;
-  margin-bottom: 2px;
-}
+  .empty-state-icon {
+    flex: 0 0 auto;
+    font-size: 18px;
+    opacity: 0.8;
+  }
 
 /* ============================================
    流式文本打字效果

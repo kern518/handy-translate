@@ -28,7 +28,7 @@
 
 ### 🔤 翻译功能
 - **划词翻译** — 鼠标选中文本，点击中键即刻翻译
-- **截图 OCR 翻译** — 按 `Ctrl+Shift+F` 截取屏幕区域，自动识别文字并翻译
+- **截图 OCR 翻译** — 按 `Alt+Shift+Q` 截取屏幕区域，自动识别文字并翻译
 - **流式翻译** — 支持 DeepSeek / MiniMax 等 LLM 的流式输出，实时查看翻译结果
 - **单词查询** — 自动检测单词，展示音标、词性、释义、例句的词典卡片
 
@@ -60,7 +60,7 @@
 ## 📸 效果展示
 
 - 点击 **鼠标中键** 选中文本弹出翻译窗口
-- 按 **Ctrl+Shift+F** 截图后 OCR 翻译
+- 按 **Alt+Shift+Q** 截图后 OCR 翻译
 
 ![效果演示](https://raw.githubusercontent.com/byzze/oss/main/handly-translate/effect.gif)
 
@@ -116,7 +116,7 @@ wails3 build
 
 - Windows 双击 `handy-translate.exe` 启动
 - 选中文本 → 点击鼠标中键 → 翻译结果弹窗
-- 按 `Ctrl+Shift+F` → 截图 → OCR → 翻译
+- 按 `Alt+Shift+Q` → 截图 → OCR → 翻译
 
 ---
 
@@ -137,7 +137,7 @@ toolbar_pinned = false                 # 工具栏是否固定
 # ──────────────────────────────────────
 [keyboards]
 toolBar = ['center', '', '']           # 划词翻译：鼠标中键
-screenshot = ['ctrl', 'shift', 'f']    # 截图翻译：Ctrl+Shift+F
+screenshot = ['alt', 'shift', 'q']     # 截图翻译：Alt+Shift+Q
 
 # ──────────────────────────────────────
 # 翻译源配置（填写对应的 API 密钥）

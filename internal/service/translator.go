@@ -10,7 +10,6 @@ import (
 
 	"handy-translate/config"
 	"handy-translate/history"
-	"handy-translate/internal/event"
 	"handy-translate/internal/translate"
 	"handy-translate/logger"
 )
@@ -20,16 +19,26 @@ import (
 type Translator struct {
 	registry  *translate.Registry
 	config    *config.Config
-	eventBus  *event.Bus
+	eventBus  TranslatorEvents
 	history   *history.HistoryService
 	wordCache *WordCache
+}
+
+// TranslatorEvents 描述翻译流程需要发送的前端事件，便于隔离测试。
+type TranslatorEvents interface {
+	EmitResult(result string)
+	EmitResultStream(fullText string)
+	EmitResultMeaningsStream(fullText string)
+	EmitStreamDone()
+	EmitStreamError(errMsg string)
+	EmitWordQueryResult(jsonResult string)
 }
 
 // NewTranslator 创建翻译服务门面。
 func NewTranslator(
 	registry *translate.Registry,
 	cfg *config.Config,
-	eventBus *event.Bus,
+	eventBus TranslatorEvents,
 	historySvc *history.HistoryService,
 	wordCache *WordCache,
 ) *Translator {
@@ -46,9 +55,10 @@ func NewTranslator(
 // 对于流式翻译，会通过 EventBus 发射 result_stream 事件；
 // 对于非流式翻译，直接返回结果。
 func (t *Translator) Translate(ctx context.Context, queryText, fromLang, toLang string) string {
-	provider, err := t.registry.GetFromConfig(t.config.TranslateWay, t.config)
+	provider, err := t.getProvider()
 	if err != nil {
 		slog.Error("获取翻译提供者失败", slog.String("error", err.Error()))
+		t.eventBus.EmitStreamError(err.Error())
 		return ""
 	}
 
@@ -58,14 +68,19 @@ func (t *Translator) Translate(ctx context.Context, queryText, fromLang, toLang 
 	}
 
 	// 非流式翻译
-	return t.translateNormal(ctx, provider, queryText, fromLang, toLang)
+	result := t.translateNormal(ctx, provider, queryText, fromLang, toLang)
+	if ctx.Err() == nil && result != "" {
+		t.eventBus.EmitResult(result)
+	}
+	return result
 }
 
 // TranslateStream 纯流式翻译（不返回结果，通过事件通知前端）。
 func (t *Translator) TranslateStream(ctx context.Context, queryText, fromLang, toLang string) {
-	provider, err := t.registry.GetFromConfig(t.config.TranslateWay, t.config)
+	provider, err := t.getProvider()
 	if err != nil {
 		slog.Error("获取翻译提供者失败", slog.String("error", err.Error()))
+		t.eventBus.EmitStreamError(err.Error())
 		return
 	}
 
@@ -81,9 +96,10 @@ func (t *Translator) TranslateStream(ctx context.Context, queryText, fromLang, t
 
 // TranslateMeanings 翻译释义（支持流式）。
 func (t *Translator) TranslateMeanings(ctx context.Context, queryText, fromLang, toLang string) string {
-	provider, err := t.registry.GetFromConfig(t.config.TranslateWay, t.config)
+	provider, err := t.getProvider()
 	if err != nil {
 		slog.Error("获取翻译提供者失败", slog.String("error", err.Error()))
+		t.eventBus.EmitStreamError(err.Error())
 		return ""
 	}
 
@@ -133,9 +149,10 @@ func (t *Translator) TranslateMeanings(ctx context.Context, queryText, fromLang,
 
 // Explain 流式解释（支持模板选择）。
 func (t *Translator) Explain(ctx context.Context, queryText, templateID string) string {
-	provider, err := t.registry.GetFromConfig(t.config.TranslateWay, t.config)
+	provider, err := t.getProvider()
 	if err != nil {
 		slog.Error("获取翻译提供者失败", slog.String("error", err.Error()))
+		t.eventBus.EmitStreamError(err.Error())
 		return ""
 	}
 
@@ -191,16 +208,23 @@ func (t *Translator) QueryWord(ctx context.Context, word string) {
 	if t.wordCache != nil {
 		if cached, ok := t.wordCache.Get(word); ok {
 			slog.Info("📦 缓存命中", slog.String("word", word))
-			time.Sleep(100 * time.Millisecond) // 等前端处理 query 事件
+			timer := time.NewTimer(100 * time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+			}
 			t.eventBus.EmitWordQueryResult(cached)
 			return
 		}
 	}
 
 	// 2. 缓存未命中 → 调用 LLM
-	provider, err := t.registry.GetFromConfig(t.config.TranslateWay, t.config)
+	provider, err := t.getProvider()
 	if err != nil {
 		slog.Error("获取翻译提供者失败", slog.String("error", err.Error()))
+		t.eventBus.EmitStreamError(err.Error())
 		return
 	}
 
@@ -211,6 +235,7 @@ func (t *Translator) QueryWord(ctx context.Context, word string) {
 		})
 		if err != nil {
 			slog.Error("QueryWord 翻译失败", slog.Any("err", err))
+			t.eventBus.EmitStreamError(err.Error())
 			return
 		}
 		t.eventBus.EmitWordQueryResult(strings.Join(result, "\n"))
@@ -221,11 +246,20 @@ func (t *Translator) QueryWord(ctx context.Context, word string) {
 	var streamResult strings.Builder
 
 	err = sp.ExplainStream(ctx, prompt, "", func(chunk string) {
+		if ctx.Err() != nil {
+			return
+		}
 		streamResult.WriteString(chunk)
 	})
 
+	if ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		slog.Error("QueryWord 失败", slog.String("word", word), slog.Any("err", err))
+		if ctx.Err() == nil {
+			t.eventBus.EmitStreamError(err.Error())
+		}
 		return
 	}
 
@@ -237,7 +271,9 @@ func (t *Translator) QueryWord(ctx context.Context, word string) {
 		t.wordCache.Set(word, jsonResult)
 	}
 
-	t.eventBus.EmitWordQueryResult(jsonResult)
+	if ctx.Err() == nil {
+		t.eventBus.EmitWordQueryResult(jsonResult)
+	}
 }
 
 // WordCacheGet 检查单词缓存是否命中。
@@ -250,7 +286,7 @@ func (t *Translator) WordCacheGet(word string) (string, bool) {
 
 // IsStreamSupported 检查当前翻译服务是否支持流式。
 func (t *Translator) IsStreamSupported() bool {
-	provider, err := t.registry.GetFromConfig(t.config.TranslateWay, t.config)
+	provider, err := t.getProvider()
 	if err != nil {
 		return false
 	}
@@ -312,6 +348,9 @@ func (t *Translator) translateNormal(ctx context.Context, provider translate.Pro
 	})
 	if err != nil {
 		logger.LogNormalTranslateError(provider.Name(), err)
+		if ctx.Err() == nil {
+			t.eventBus.EmitStreamError(err.Error())
+		}
 		return ""
 	}
 
@@ -323,15 +362,30 @@ func (t *Translator) translateNormal(ctx context.Context, provider translate.Pro
 }
 
 func (t *Translator) saveTranslateHistory(queryText, result, fromLang, toLang string) {
-	if t.config.History.Enabled && t.history != nil {
-		go t.history.SaveTranslateRecord(queryText, result, fromLang, toLang)
+	if t.configSnapshot().History.Enabled && t.history != nil {
+		t.history.SaveTranslateRecord(queryText, result, fromLang, toLang)
 	}
 }
 
 func (t *Translator) saveExplainHistory(queryText, result, templateID string) {
-	if t.config.History.Enabled && t.history != nil {
-		go t.history.SaveExplainRecord(queryText, result, templateID)
+	if t.configSnapshot().History.Enabled && t.history != nil {
+		t.history.SaveExplainRecord(queryText, result, templateID)
 	}
+}
+
+func (t *Translator) getProvider() (translate.Provider, error) {
+	currentConfig := t.configSnapshot()
+	return t.registry.GetFromConfig(currentConfig.TranslateWay, &currentConfig)
+}
+
+func (t *Translator) configSnapshot() config.Config {
+	if t.config == nil {
+		return config.DefaultConfig()
+	}
+	if t.config == &config.Data {
+		return config.Snapshot()
+	}
+	return *t.config
 }
 
 // buildWordQueryPrompt 构造单词查询的 LLM 提示词。

@@ -3,7 +3,7 @@ translate_way = 'deepseek'
 toolbar_mode = 'translate'
 
 [keyboards]
-screenshot = ['ctrl', 'shift', 'f']
+screenshot = ['alt', 'shift', 'q']
 toolBar = ['center', '', '']
 
 [translate]

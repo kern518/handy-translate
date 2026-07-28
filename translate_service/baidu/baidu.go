@@ -1,6 +1,7 @@
 package baidu
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
@@ -23,8 +24,7 @@ type Baidu struct {
 }
 
 const (
-	fromLang = "auto"
-	endpoint = "http://api.fanyi.baidu.com"
+	endpoint = "https://api.fanyi.baidu.com"
 	path     = "/api/trans/vip/translate"
 )
 
@@ -36,6 +36,8 @@ type translateResult struct {
 	From        string        `json:"from"`
 	To          string        `json:"to"`
 	TransResult []TransResult `json:"trans_result"`
+	ErrorCode   string        `json:"error_code"`
+	ErrorMsg    string        `json:"error_msg"`
 }
 type TransResult struct {
 	Dst string `json:"dst"`
@@ -43,9 +45,11 @@ type TransResult struct {
 }
 
 func (b *Baidu) PostQuery(query, fromLang, toLang string) ([]string, error) {
+	return b.PostQueryContext(context.Background(), query, fromLang, toLang)
+}
+
+func (b *Baidu) PostQueryContext(ctx context.Context, query, fromLang, toLang string) ([]string, error) {
 	slog.Debug("PostQuery", slog.String("query", query), slog.String("fromLang", fromLang), slog.String("toLang", toLang))
-	endpoint := "http://api.fanyi.baidu.com"
-	path := "/api/trans/vip/translate"
 	uri := endpoint + path
 	appKey := b.Key
 	appID := b.AppID
@@ -67,7 +71,7 @@ func (b *Baidu) PostQuery(query, fromLang, toLang string) ([]string, error) {
 
 	// Send request
 	client := httpclient.GetDefaultClient()
-	req, err := http.NewRequest("POST", uri, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", uri, strings.NewReader(form.Encode()))
 	if err != nil {
 		slog.Error("Error creating request:", slog.Any("err", err))
 		return nil, err
@@ -80,6 +84,9 @@ func (b *Baidu) PostQuery(query, fromLang, toLang string) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("baidu API returned status %d", resp.StatusCode)
+	}
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)
@@ -92,6 +99,9 @@ func (b *Baidu) PostQuery(query, fromLang, toLang string) ([]string, error) {
 	if err := json.Unmarshal(body, &result); err != nil {
 		slog.Error("Error:", slog.Any("err", err))
 		return nil, err
+	}
+	if result.ErrorCode != "" {
+		return nil, fmt.Errorf("baidu API error %s: %s", result.ErrorCode, result.ErrorMsg)
 	}
 
 	prettyResult, _ := json.MarshalIndent(result, "", "    ")
@@ -107,7 +117,7 @@ func (b *Baidu) PostQuery(query, fromLang, toLang string) ([]string, error) {
 		}
 		return res, nil
 	}
-	return nil, err
+	return nil, fmt.Errorf("baidu API returned no translation")
 }
 
 func makeMD5(s string) string {

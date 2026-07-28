@@ -65,12 +65,12 @@ func NewWindow(app *application.App) {
 	// 处理失去焦点事件
 	Window.OnWindowEvent(events.Common.WindowLostFocus, func(e *application.WindowEvent) {
 		// 只有在未固定状态下才隐藏窗口
-		if !config.Data.ToolbarPinned {
+		if !config.Snapshot().ToolbarPinned {
 			// 延迟隐藏，避免与 WebView2 焦点管理冲突
 			go func() {
 				time.Sleep(100 * time.Millisecond)
 				// 再次检查固定状态和窗口状态
-				if !config.Data.ToolbarPinned && Window != nil {
+				if !config.Snapshot().ToolbarPinned && Window != nil {
 					application.InvokeSync(func() {
 						Window.Hide()
 					})

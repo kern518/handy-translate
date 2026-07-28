@@ -69,9 +69,10 @@ export default function TargetArea(props) {
 
         // 监听流式翻译结果
         const unsubscribeStream = Events.On("result_stream", function (data) {
-            let chunk = typeof data.data === 'string' ? data.data : String(data.data || '')
-            streamBufferRef.current += chunk  // 累积到 ref
-            setResult(streamBufferRef.current)  // 更新状态触发重渲染
+            const fullText = typeof data.data === 'string' ? data.data : String(data.data || '')
+            // 后端发送的是截至当前的完整文本，不是单个增量 chunk。
+            streamBufferRef.current = fullText
+            setResult(fullText)
             setIsLoading(false)
         })
 

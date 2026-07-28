@@ -53,7 +53,8 @@ func GetTranslateWay(way string) Translate {
 		return nil
 	}
 
-	cfgEntry, exists := config.Data.Translate[way]
+	currentConfig := config.Snapshot()
+	cfgEntry, exists := currentConfig.Translate[way]
 	if !exists {
 		return nil
 	}

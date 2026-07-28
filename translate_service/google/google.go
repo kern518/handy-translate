@@ -26,9 +26,7 @@ const (
 	TranslatePrompts = `You are a professional translator.
 Please translate the following text accurately and naturally.
 Keep the original meaning, tone, and formatting.
-Do not explain or add anything else.
-If the text is Chinese, translate to English.
-If the text is English, translate to Chinese.`
+Do not explain or add anything else.`
 )
 
 var (
@@ -87,11 +85,15 @@ func (g *Google) GetName() string {
 
 // PostQuery 非流式翻译。
 func (g *Google) PostQuery(query, fromLang, toLang string) ([]string, error) {
+	return g.PostQueryContext(context.Background(), query, fromLang, toLang)
+}
+
+func (g *Google) PostQueryContext(ctx context.Context, query, fromLang, toLang string) ([]string, error) {
 	initClients()
 
 	reqBody := ChatRequest{
 		Model:    g.getModel(),
-		Messages: buildTranslateMessages(TranslatePrompts, query),
+		Messages: buildTranslateMessages(TranslatePrompts, query, fromLang, toLang),
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -100,7 +102,7 @@ func (g *Google) PostQuery(query, fromLang, toLang string) ([]string, error) {
 	}
 
 	url := g.getBaseURL() + "/chat/completions"
-	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -148,16 +150,26 @@ func (g *Google) PostQuery(query, fromLang, toLang string) ([]string, error) {
 
 // PostQueryStream 流式翻译。
 func (g *Google) PostQueryStream(query, fromLang, toLang string, callback func(chunk string)) error {
+	return g.PostQueryStreamContext(context.Background(), query, fromLang, toLang, callback)
+}
+
+// PostQueryStreamContext 流式翻译，并在调用方取消 ctx 时终止 HTTP 请求。
+func (g *Google) PostQueryStreamContext(ctx context.Context, query, fromLang, toLang string, callback func(chunk string)) error {
 	reqBody := ChatRequest{
 		Model:    g.getModel(),
-		Messages: buildTranslateMessages(TranslatePrompts, query),
+		Messages: buildTranslateMessages(TranslatePrompts, query, fromLang, toLang),
 		Stream:   true,
 	}
-	return g.doStreamRequest(reqBody, callback)
+	return g.doStreamRequest(ctx, reqBody, callback)
 }
 
 // PostExplainStream 流式术语解释（支持模板选择）。
 func (g *Google) PostExplainStream(query, templateID string, callback func(chunk string)) error {
+	return g.PostExplainStreamContext(context.Background(), query, templateID, callback)
+}
+
+// PostExplainStreamContext 流式解释，并在调用方取消 ctx 时终止 HTTP 请求。
+func (g *Google) PostExplainStreamContext(ctx context.Context, query, templateID string, callback func(chunk string)) error {
 	var prompt string
 
 	if templateID == "" {
@@ -188,7 +200,7 @@ func (g *Google) PostExplainStream(query, templateID string, callback func(chunk
 		Stream: true,
 	}
 
-	return g.doStreamRequest(reqBody, callback)
+	return g.doStreamRequest(ctx, reqBody, callback)
 }
 
 // ──────────────────────────────────────────────
@@ -211,14 +223,15 @@ func (g *Google) getModel() string {
 
 // getTemplate 获取提示词模板，委托到共用模板查找逻辑。
 func (g *Google) getTemplate(templateID string) string {
-	return config.FindTemplate(&config.Data.ExplainTemplates, templateID)
+	currentConfig := config.Snapshot()
+	return config.FindTemplate(&currentConfig.ExplainTemplates, templateID)
 }
 
-func buildTranslateMessages(systemPrompt, query string) []Message {
+func buildTranslateMessages(systemPrompt, query, fromLang, toLang string) []Message {
 	return []Message{
 		{
 			Role:    "system",
-			Content: systemPrompt,
+			Content: fmt.Sprintf("%s\nTranslate from %s to %s.", systemPrompt, fromLang, toLang),
 		},
 		{
 			Role:    "user",
@@ -248,7 +261,7 @@ func initClients() {
 }
 
 // doStreamRequest 执行流式请求（SSE）。
-func (g *Google) doStreamRequest(reqBody ChatRequest, callback func(chunk string)) error {
+func (g *Google) doStreamRequest(ctx context.Context, reqBody ChatRequest, callback func(chunk string)) error {
 	initClients()
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -261,9 +274,6 @@ func (g *Google) doStreamRequest(reqBody ChatRequest, callback func(chunk string
 	slog.Debug("Google Gemini 请求",
 		slog.String("url", url),
 		slog.String("model", reqBody.Model))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {

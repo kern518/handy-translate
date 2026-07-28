@@ -48,9 +48,19 @@ func (r *Registry) Get(name string, cfg config.Translate) (Provider, error) {
 
 // GetFromConfig 从全局配置中获取指定名称的翻译提供者。
 func (r *Registry) GetFromConfig(name string, configData *config.Config) (Provider, error) {
+	if configData == nil {
+		return nil, fmt.Errorf("翻译配置未初始化")
+	}
+	if name == "" {
+		return nil, fmt.Errorf("未选择翻译提供者")
+	}
+
 	cfgEntry, exists := configData.Translate[name]
 	if !exists {
 		return nil, fmt.Errorf("翻译配置不存在: %s", name)
+	}
+	if cfgEntry.Key == "" {
+		return nil, fmt.Errorf("翻译提供者 %s 尚未配置 API 密钥", name)
 	}
 
 	return r.Get(name, config.Translate{

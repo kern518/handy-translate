@@ -3,6 +3,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,16 +13,23 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
+
+const defaultOCRTimeout = 30 * time.Second
 
 // OCRService OCR 文字识别服务。
 type OCRService struct {
 	executablePath string
+	timeout        time.Duration
 }
 
 // NewOCRService 创建 OCR 服务实例。
 func NewOCRService(executablePath string) *OCRService {
-	return &OCRService{executablePath: executablePath}
+	return &OCRService{
+		executablePath: executablePath,
+		timeout:        defaultOCRTimeout,
+	}
 }
 
 // OCRResult OCR 识别结果结构。
@@ -36,7 +44,14 @@ type OCRResult struct {
 
 // Recognize 对图片执行 OCR 识别，返回识别到的文本。
 func (o *OCRService) Recognize(imagePath string) string {
-	cmd := exec.Command(o.executablePath, "--image="+imagePath)
+	timeout := o.timeout
+	if timeout <= 0 {
+		timeout = defaultOCRTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, o.executablePath, "--image="+imagePath)
 
 	var outputBuffer bytes.Buffer
 	var stderrBuffer bytes.Buffer
@@ -56,6 +71,10 @@ func (o *OCRService) Recognize(imagePath string) string {
 	}
 
 	if err := cmd.Wait(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			slog.Error("OCR 执行超时", slog.Duration("timeout", timeout))
+			return ""
+		}
 		stderrStr := stderrBuffer.String()
 		if stderrStr != "" {
 			slog.Error("OCR 执行失败", slog.Any("error", err), slog.String("stderr", stderrStr))

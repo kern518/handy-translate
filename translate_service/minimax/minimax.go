@@ -23,9 +23,7 @@ const (
 	TranslatePrompts = `You are a professional translator.
 Please translate the following text accurately and naturally.
 Keep the original meaning, tone, and formatting.
-Do not explain or add anything else.
-If the text is Chinese, translate to English.
-If the text is English, translate to Chinese.`
+Do not explain or add anything else.`
 )
 
 var (
@@ -140,12 +138,12 @@ func initClients() {
 }
 
 // buildTranslateMessages 构建翻译请求的 messages
-func buildTranslateMessages(systemPrompt, query string) []Message {
+func buildTranslateMessages(systemPrompt, query, fromLang, toLang string) []Message {
 	return []Message{
 		{
 			Role:    "system",
 			Name:    "Translator",
-			Content: systemPrompt,
+			Content: fmt.Sprintf("%s\nTranslate from %s to %s.", systemPrompt, fromLang, toLang),
 		},
 		{
 			Role:    "user",
@@ -157,11 +155,15 @@ func buildTranslateMessages(systemPrompt, query string) []Message {
 
 // PostQuery 非流式翻译
 func (c *Minimax) PostQuery(query, fromLang, toLang string) ([]string, error) {
+	return c.PostQueryContext(context.Background(), query, fromLang, toLang)
+}
+
+func (c *Minimax) PostQueryContext(ctx context.Context, query, fromLang, toLang string) ([]string, error) {
 	initClients()
 
 	reqBody := ChatCompletionRequest{
 		Model:    c.getModel(),
-		Messages: buildTranslateMessages(TranslatePrompts, query),
+		Messages: buildTranslateMessages(TranslatePrompts, query, fromLang, toLang),
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -170,7 +172,7 @@ func (c *Minimax) PostQuery(query, fromLang, toLang string) ([]string, error) {
 	}
 
 	url := c.getBaseURL() + "/v1/text/chatcompletion_v2"
-	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -220,17 +222,27 @@ func (c *Minimax) PostQuery(query, fromLang, toLang string) ([]string, error) {
 
 // PostQueryStream 流式翻译
 func (c *Minimax) PostQueryStream(query, fromLang, toLang string, callback func(chunk string)) error {
+	return c.PostQueryStreamContext(context.Background(), query, fromLang, toLang, callback)
+}
+
+// PostQueryStreamContext 流式翻译，并在调用方取消 ctx 时终止 HTTP 请求。
+func (c *Minimax) PostQueryStreamContext(ctx context.Context, query, fromLang, toLang string, callback func(chunk string)) error {
 	reqBody := ChatCompletionRequest{
 		Model:    c.getModel(),
-		Messages: buildTranslateMessages(TranslatePrompts, query),
+		Messages: buildTranslateMessages(TranslatePrompts, query, fromLang, toLang),
 		Stream:   true,
 	}
 
-	return c.doStreamRequest(reqBody, callback)
+	return c.doStreamRequest(ctx, reqBody, callback)
 }
 
 // PostExplainStream 流式术语解释
 func (c *Minimax) PostExplainStream(query, templateID string, callback func(chunk string)) error {
+	return c.PostExplainStreamContext(context.Background(), query, templateID, callback)
+}
+
+// PostExplainStreamContext 流式解释，并在调用方取消 ctx 时终止 HTTP 请求。
+func (c *Minimax) PostExplainStreamContext(ctx context.Context, query, templateID string, callback func(chunk string)) error {
 	var prompt string
 
 	if templateID == "" {
@@ -263,11 +275,11 @@ func (c *Minimax) PostExplainStream(query, templateID string, callback func(chun
 		Stream: true,
 	}
 
-	return c.doStreamRequest(reqBody, callback)
+	return c.doStreamRequest(ctx, reqBody, callback)
 }
 
 // doStreamRequest 执行流式请求（SSE）
-func (c *Minimax) doStreamRequest(reqBody ChatCompletionRequest, callback func(chunk string)) error {
+func (c *Minimax) doStreamRequest(ctx context.Context, reqBody ChatCompletionRequest, callback func(chunk string)) error {
 	initClients()
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -276,10 +288,6 @@ func (c *Minimax) doStreamRequest(reqBody ChatCompletionRequest, callback func(c
 	}
 
 	url := c.getBaseURL() + "/v1/text/chatcompletion_v2"
-
-	// 流式请求不设固定超时，用 cancel 控制生命周期
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {
@@ -371,6 +379,6 @@ func truncateForLog(s string, maxLen int) string {
 
 // getTemplate 获取提示词模板，委托到共用模板查找逻辑。
 func (c *Minimax) getTemplate(templateID string) string {
-	return config.FindTemplate(&config.Data.ExplainTemplates, templateID)
+	currentConfig := config.Snapshot()
+	return config.FindTemplate(&currentConfig.ExplainTemplates, templateID)
 }
-

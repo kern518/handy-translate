@@ -18,7 +18,7 @@ export default function About() {
                 <h1 className='font-bold text-2xl text-center'>Handy-Translate</h1>
                 <p className='text-center text-sm text-gray-500 mb-[5px]'>{appVersion}</p>
                 <p className='text-center text-sm text-gray-500 mb-[5px]'>鼠标中键或者Ctrl+c+c唤醒应用</p>
-                <p className='text-center text-sm text-gray-500 mb-[5px]'>Ctrl+Shift+F OCR截图翻译</p>
+                <p className='text-center text-sm text-gray-500 mb-[5px]'>Alt+Shift+Q OCR截图翻译</p>
                 <Divider />
                 <div className='flex justify-between'>
                     <Button

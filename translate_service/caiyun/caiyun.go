@@ -2,13 +2,16 @@ package caiyun
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"handy-translate/config"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"handy-translate/config"
+	"handy-translate/utils/httpclient"
 )
 
 // https://docs.caiyunapp.com/blog/2021/12/30/hello-world
@@ -34,7 +37,14 @@ func (c *Caiyun) GetName() string {
 }
 
 func (c *Caiyun) PostQuery(query, fromLang, toLang string) ([]string, error) {
-	url := "http://api.interpreter.caiyunai.com/v1/translator"
+	return c.PostQueryContext(context.Background(), query, fromLang, toLang)
+}
+
+func (c *Caiyun) PostQueryContext(ctx context.Context, query, fromLang, toLang string) ([]string, error) {
+	url := "https://api.interpreter.caiyunai.com/v1/translator"
+	if c.BaseURL != "" {
+		url = strings.TrimRight(c.BaseURL, "/")
+	}
 
 	// WARNING, this token is a test token for new developers,
 	// and it should be replaced by your token
@@ -54,7 +64,7 @@ func (c *Caiyun) PostQuery(query, fromLang, toLang string) ([]string, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -62,23 +72,24 @@ func (c *Caiyun) PostQuery(query, fromLang, toLang string) ([]string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-authorization", "token "+token)
 
-	client := &http.Client{}
+	client := httpclient.GetDefaultClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
-	if resp.StatusCode != 200 {
-		return nil, err
-	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("caiyun API returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Info(string(respBody))
+	slog.Debug("彩云翻译响应", slog.Int("body_length", len(respBody)))
 	var translationResponse TranslationResponse
 	err = json.Unmarshal(respBody, &translationResponse)
 

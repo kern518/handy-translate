@@ -2,16 +2,12 @@
 package app
 
 import (
-	"bytes"
-	"context"
-	"encoding/base64"
 	"image/png"
 	"log/slog"
+	"os"
+	"runtime"
 
-	"handy-translate/config"
-	"handy-translate/internal/event"
-	"handy-translate/internal/service"
-	"handy-translate/internal/window"
+	"handy-translate/os_api/windows"
 	"handy-translate/window/screenshot"
 )
 
@@ -22,59 +18,60 @@ func (a *Application) HandleCaptureSelectedScreen(startX, startY, width, height 
 		return
 	}
 
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, croppedImg); err != nil {
-		slog.Error("png.Encode", slog.Any("err", err))
+	tempFile, err := os.CreateTemp("", "handy-translate-ocr-*.png")
+	if err != nil {
+		slog.Error("创建 OCR 临时文件失败", slog.Any("err", err))
 		return
 	}
+	filename := tempFile.Name()
+	defer os.Remove(filename)
 
-	filename := "screenshot.png"
-	base64String := base64.StdEncoding.EncodeToString(buf.Bytes())
-
-	if err := service.SaveBase64Image(base64String, filename); err != nil {
-		slog.Error("saveBase64Image", slog.Any("err", err))
+	if err := png.Encode(tempFile, croppedImg); err != nil {
+		tempFile.Close()
+		slog.Error("写入 OCR 临时文件失败", slog.Any("err", err))
+		return
+	}
+	if err := tempFile.Close(); err != nil {
+		slog.Error("关闭 OCR 临时文件失败", slog.Any("err", err))
 		return
 	}
 
 	// OCR 解析文本
 	queryText := a.OCR.Recognize(filename)
 	slog.Info("OCR 识别完成", slog.Int("textLen", len(queryText)))
+	if queryText == "" {
+		a.EventBus.EmitStreamError("未识别到文字，请重新选择截图区域")
+		return
+	}
+
 	a.State.SetCurrentQuery(queryText)
 	a.WindowMgr.ResetToolbarState()
 
 	// 发送查询文本
 	a.EventBus.EmitQuery(queryText)
 
-	// 根据模式翻译或解释
+	// 复用统一查询流程，使截图查询同样能够取消前一个后台请求。
 	mode := a.State.GetToolbarMode()
-	ctx := context.Background()
-	fl, tl := a.State.GetLangs()
-
-	if a.Translator.IsStreamSupported() {
-		switch mode {
-		case window.ExplainMode:
-			templateID := config.Data.ExplainTemplates.DefaultTemplate
-			if templateID == "" {
-				for id := range config.Data.ExplainTemplates.Templates {
-					templateID = id
-					break
-				}
-			}
-			if templateID != "" {
-				a.Translator.Explain(ctx, queryText, templateID)
-			}
-		default:
-			a.Translator.Translate(ctx, queryText, fl, tl)
-		}
-	} else {
-		result := a.Translator.Translate(ctx, queryText, fl, tl)
-		a.EventBus.EmitResult(result)
-		a.EventBus.Emit(event.Explains, "")
-	}
+	a.startCurrentQuery(queryText, mode)
 }
 
 // HandleScreenshotEvent 处理截图快捷键事件。
 func (a *Application) HandleScreenshotEvent() {
-	base64Image := screenshot.ScreenshotFullScreen()
+	x, y := 0, 0
+	if runtime.GOOS == "windows" {
+		cursor := windows.GetCursorPos()
+		x, y = int(cursor.X), int(cursor.Y)
+	}
+
+	base64Image, bounds := screenshot.ScreenshotAt(x, y)
+	if base64Image == "" {
+		a.EventBus.EmitStreamError("截图失败，请重试")
+		return
+	}
+
+	if a.WindowMgr.Screenshot != nil && !bounds.Empty() {
+		a.WindowMgr.Screenshot.SetPosition(bounds.Min.X, bounds.Min.Y)
+		a.WindowMgr.Screenshot.SetSize(bounds.Dx(), bounds.Dy())
+	}
 	a.EventBus.EmitScreenshotBase64(base64Image)
 }

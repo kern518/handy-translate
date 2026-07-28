@@ -2,9 +2,10 @@ package history
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
-	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -58,7 +59,7 @@ func (h *HistoryService) SaveTranslateRecord(sourceText, result, fromLang, toLan
 	}
 
 	date := record.Timestamp.Format("2006-01-02")
-	filePath := path.Join(h.storagePath, "history", "translate", date+".json")
+	filePath := filepath.Join(h.storagePath, "history", "translate", date+".json")
 
 	h.appendToFile(filePath, record)
 	slog.Debug("翻译历史记录已保存", slog.String("id", record.ID))
@@ -80,7 +81,7 @@ func (h *HistoryService) SaveExplainRecord(sourceText, result, templateID string
 	}
 
 	date := record.Timestamp.Format("2006-01-02")
-	filePath := path.Join(h.storagePath, "history", explainMode, date+".json")
+	filePath := filepath.Join(h.storagePath, "history", explainMode, date+".json")
 
 	h.appendToFile(filePath, record)
 	slog.Debug("解释历史记录已保存", slog.String("id", record.ID), slog.String("word", sourceText))
@@ -92,7 +93,7 @@ func (h *HistoryService) appendToFile(filePath string, record *HistoryRecord) {
 	defer h.mu.Unlock()
 
 	// 确保目录存在
-	err := os.MkdirAll(path.Dir(filePath), 0755)
+	err := os.MkdirAll(filepath.Dir(filePath), 0755)
 	if err != nil {
 		slog.Error("创建历史记录目录失败", slog.Any("error", err))
 		return
@@ -121,7 +122,36 @@ func (h *HistoryService) appendToFile(filePath string, record *HistoryRecord) {
 		return
 	}
 
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := writeFileAtomic(filePath, data, 0644); err != nil {
 		slog.Error("写入历史记录文件失败", slog.Any("error", err))
 	}
+}
+
+func writeFileAtomic(filePath string, data []byte, mode os.FileMode) error {
+	tempFile, err := os.CreateTemp(filepath.Dir(filePath), ".history-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create history temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+
+	if err := tempFile.Chmod(mode); err != nil {
+		tempFile.Close()
+		return fmt.Errorf("set history file mode: %w", err)
+	}
+	if _, err := tempFile.Write(data); err != nil {
+		tempFile.Close()
+		return fmt.Errorf("write history temp file: %w", err)
+	}
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		return fmt.Errorf("sync history temp file: %w", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close history temp file: %w", err)
+	}
+	if err := os.Rename(tempPath, filePath); err != nil {
+		return fmt.Errorf("replace history file: %w", err)
+	}
+	return nil
 }

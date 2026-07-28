@@ -3,6 +3,9 @@ package main
 import (
 	"embed"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
 	"time"
 
 	"handy-translate/config"
@@ -65,6 +68,7 @@ func main() {
 	// 3. 初始化配置
 	// ──────────────────────────────────────────
 	config.Init(projectName)
+	runtimeConfig := config.Snapshot()
 
 	// ──────────────────────────────────────────
 	// 4. 组装依赖（依赖注入）
@@ -78,7 +82,7 @@ func main() {
 	translate.RegisterAll(providerRegistry)
 
 	// 历史记录服务
-	historySvc := history.NewHistoryService(config.Data.History.Enabled, config.Data.History.StoragePath)
+	historySvc := history.NewHistoryService(runtimeConfig.History.Enabled, runtimeConfig.History.StoragePath)
 
 	// 翻译业务门面（门面模式）
 	wordCache := service.NewWordCache("data/word_cache")
@@ -91,7 +95,7 @@ func main() {
 	windowMgr.Screenshot = screenshotWin.Window
 
 	// OCR 服务
-	ocrSvc := service.NewOCRService(".\\RapidOCR-json.exe")
+	ocrSvc := service.NewOCRService(resolveOCRExecutable())
 
 	// 应用核心（依赖注入容器）
 	app := internalApp.NewApplication(
@@ -112,15 +116,15 @@ func main() {
 	app.RegisterEvents()
 
 	// 从配置读取工具栏模式
-	if config.Data.ToolbarMode != "" {
-		app.SetToolbarMode(config.Data.ToolbarMode)
-		slog.Info("从配置读取工具栏模式", slog.String("mode", config.Data.ToolbarMode))
+	if runtimeConfig.ToolbarMode != "" {
+		app.SetToolbarMode(runtimeConfig.ToolbarMode)
+		slog.Info("从配置读取工具栏模式", slog.String("mode", runtimeConfig.ToolbarMode))
 	} else {
 		app.SetToolbarMode("translate")
 	}
 
 	// 从配置读取工具栏固定状态
-	if config.Data.ToolbarPinned {
+	if runtimeConfig.ToolbarPinned {
 		windowMgr.SetPinned(true)
 		slog.Info("从配置读取工具栏固定状态", slog.Bool("pinned", true))
 	}
@@ -130,6 +134,27 @@ func main() {
 	// ──────────────────────────────────────────
 	systemTray := wailsApp.SystemTray.New()
 	myMenu := wailsApp.Menu.New()
+
+	providerMenu := myMenu.AddSubmenu("翻译服务")
+	type providerMenuItem struct {
+		id   string
+		name string
+	}
+	providerItems := make([]providerMenuItem, 0, len(runtimeConfig.Translate))
+	for id, provider := range runtimeConfig.Translate {
+		providerItems = append(providerItems, providerMenuItem{id: id, name: provider.Name})
+	}
+	sort.Slice(providerItems, func(i, j int) bool {
+		return providerItems[i].name < providerItems[j].name
+	})
+	for _, provider := range providerItems {
+		item := provider
+		providerMenu.AddRadio(item.name, item.id == runtimeConfig.TranslateWay).OnClick(func(ctx *application.Context) {
+			app.SwitchTranslateWay(item.id)
+		})
+	}
+
+	myMenu.AddSeparator()
 
 	myMenu.Add("截图").OnClick(func(ctx *application.Context) {
 		app.HandleScreenshotEvent()
@@ -157,4 +182,30 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func resolveOCRExecutable() string {
+	const executableName = "RapidOCR-json.exe"
+
+	if executable, err := os.Executable(); err == nil {
+		bundledPath := filepath.Join(filepath.Dir(executable), executableName)
+		if _, statErr := os.Stat(bundledPath); statErr == nil {
+			return bundledPath
+		}
+	} else {
+		slog.Warn("无法获取程序目录，尝试从当前工作目录查找 OCR", slog.Any("error", err))
+	}
+
+	if workingDirectory, err := os.Getwd(); err == nil {
+		developmentPath := filepath.Join(workingDirectory, executableName)
+		if _, statErr := os.Stat(developmentPath); statErr == nil {
+			return developmentPath
+		}
+	}
+
+	// 保留发布目录语义，使后续启动错误日志包含预期的绝对路径。
+	if executable, err := os.Executable(); err == nil {
+		return filepath.Join(filepath.Dir(executable), executableName)
+	}
+	return executableName
 }

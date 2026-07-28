@@ -1,7 +1,9 @@
 package youdao
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -21,6 +23,10 @@ func (y *Youdao) GetName() string {
 }
 
 func (y *Youdao) PostQuery(query, fromLang, toLang string) ([]string, error) {
+	return y.PostQueryContext(context.Background(), query, fromLang, toLang)
+}
+
+func (y *Youdao) PostQueryContext(ctx context.Context, query, fromLang, toLang string) ([]string, error) {
 	// 添加请求参数
 	paramsMap := createRequestParams(query, fromLang, toLang)
 	header := map[string][]string{
@@ -29,15 +35,21 @@ func (y *Youdao) PostQuery(query, fromLang, toLang string) ([]string, error) {
 	// 添加鉴权相关参数
 	authv3.AddAuthParams(y.AppID, y.Key, paramsMap)
 	// 请求api服务
-	result := utils.DoPost("https://openapi.youdao.com/api", header, paramsMap, "application/json")
+	result, err := utils.DoPostContext(ctx, "https://openapi.youdao.com/api", header, paramsMap, "application/json")
+	if err != nil {
+		return nil, err
+	}
 	// 打印返回结果
 
 	var tr Translate
 
-	err := json.Unmarshal(result, &tr)
+	err = json.Unmarshal(result, &tr)
 	if err != nil {
 		slog.Error("PostQuery", slog.Any("err", err))
 		return nil, err
+	}
+	if tr.ErrorCode != "" && tr.ErrorCode != "0" {
+		return nil, fmt.Errorf("youdao API error: %s", tr.ErrorCode)
 	}
 
 	prettyResult, _ := json.MarshalIndent(string(result), "", "    ")
@@ -63,13 +75,10 @@ func createRequestParams(query, fromLang, toLang string) map[string][]string {
 	// to := "zh-CHS"
 	from := fromLang
 	to := toLang
-	vocabId := "您的用户词表ID"
-
 	return map[string][]string{
-		"q":       {q},
-		"from":    {from},
-		"to":      {to},
-		"vocabId": {vocabId},
+		"q":    {q},
+		"from": {from},
+		"to":   {to},
 	}
 }
 
